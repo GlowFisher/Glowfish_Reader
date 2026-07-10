@@ -1,0 +1,66 @@
+# Virtual environments and local package caches
+.venv/
+.paddle_venv/
+.uv-cache/
+
+# PyInstaller / Inno Setup build outputs
+proofread/build/
+proofread/dist/
+proofread/Output/
+
+# Runtime user data. May contain private historical materials.
+proofread/_work/
+
+# Local model weights and model caches. Rebuild or package explicitly outside git.
+proofread/models/
+
+# Python / pytest caches
+__pycache__/
+*.pyc
+.pytest_cache/
+.pytest_tmp*/
+_pytest_tmp*/
+proofread/.pytest_cache/
+
+# One-off test and investigation outputs
+_tmp*/
+proofread/_tmp*/
+proofread/_e2e_*/
+proofread/_gui_*/
+proofread/_smoketest_*/
+proofread/_pkgtest/
+
+# Local server launch helpers and logs
+run-glowfish*.bat
+server-*.log
+server-*.err.log
+server-*.pid
+server-*.cmd.log
+server-*.cmd.err
+
+# Legacy VL/GGUF assets should not return to the v1.0.3 product tree.
+proofread/vendor/llama/
+proofread/models/vl/
+
+# Historical upgrade snapshots and large debug outputs
+proofread/_upgrade_log/
+
+# Bench runtime caches. Gold data and scripts are tracked intentionally.
+bench/_ocr_cache/
+bench/_hw_out/
+
+# Licensing secrets and local databases
+license_server/_keys/
+license_server/*.db
+proofread/licensing/tests/.tmp/
+
+# Bench 调试可视化输出。CER 报告、pred_*.json 与 _img/ 原图仍跟踪。
+bench/out/_img/*_col_*.jpg
+bench/out/_img/*_ocr.jpg
+bench/out/_viz/
+
+# 本地临时目录
+tmp/
+
+# 官网源（website/）自 2026-07-09 起入库：它只存在于一台开发机上，丢了无从恢复，
+# 且 deploy_site.sh 就是拿它做部署输入。产物 2.9MB，值这个空间。

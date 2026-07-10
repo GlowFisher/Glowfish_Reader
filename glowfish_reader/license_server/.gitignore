@@ -1,0 +1,7 @@
+# 私钥与本地授权库绝不入库（运行时由 keygen.py 生成 / systemd 挂载）
+_keys/
+*.db
+# Python 缓存与测试残留
+__pycache__/
+*.pyc
+.pytest_cache/

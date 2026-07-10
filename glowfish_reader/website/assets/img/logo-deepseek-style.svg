@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">Glowfish blue fish mark</title>
+  <desc id="desc">A simplified Glowfish mark inspired by the first fish logo, using a DeepSeek-like single blue animal symbol with negative-space cuts.</desc>
+  <g id="mark" fill="#4D6BFE">
+    <path d="M78 68C106 31 151 22 191 42C219 56 234 79 225 99C219 114 199 123 180 133C151 149 128 171 113 199C106 213 106 226 116 237C87 225 67 198 58 160C51 125 60 92 78 68Z"/>
+    <path d="M48 72C63 49 88 42 114 52C99 65 87 85 78 109C68 92 58 80 48 72Z"/>
+    <path d="M79 160C101 184 132 195 174 190C158 205 137 211 116 206C98 202 85 184 79 160Z"/>
+    <path d="M85 190C105 213 130 226 158 225C143 235 122 239 104 229C93 223 87 209 85 190Z"/>
+  </g>
+  <g id="negative-space" fill="#fff">
+    <path d="M222 81C188 82 154 96 125 116C101 133 86 154 80 177C94 164 111 152 132 141C159 126 188 115 214 108C224 105 231 96 230 88C229 84 226 82 222 81Z"/>
+    <path d="M83 164C108 184 139 191 184 185C162 197 134 200 110 194C96 190 88 180 83 164Z"/>
+    <path d="M82 69C91 58 101 53 114 52C101 62 90 79 81 101C80 89 80 78 82 69Z"/>
+    <circle cx="181" cy="57" r="5"/>
+  </g>
+</svg>
