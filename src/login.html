@@ -1,0 +1,52 @@
+﻿<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>登录 · Glowfish Reader 史料阅读器</title>
+  <link rel="icon" type="image/png" href="favicon.png">
+  <style>
+    :root{--ink:#2a2f37;--paper:#fff;--field:#eef1f5;--field-focus:#fff;--accent:#365a67;--accent-d:#284851;--line:#d3dae2;--line-soft:#e2e7ee;--muted:#737d8a;--navy:#1c3c66;--navy2:#19365c;--font:"Microsoft YaHei",system-ui,sans-serif;}
+    *{box-sizing:border-box;font-family:var(--font);} html,body{min-height:100%;margin:0;}
+    body{color:var(--ink);background:radial-gradient(120% 90% at 50% 0%,#eef2f6 0%,#e2e8ef 60%,#d8dee6 100%);display:flex;padding:30px 18px;}
+    .card{width:400px;max-width:100%;margin:auto;background:var(--paper);border:1px solid var(--line);border-radius:8px;box-shadow:0 20px 56px rgba(28,40,56,.16);padding:34px 32px 24px;}
+    .brand{text-align:center;margin-bottom:22px}.wordmark-line{display:flex;align-items:baseline;justify-content:center;gap:9px;margin-bottom:7px}.wordmark{font-weight:700;font-size:25px;color:var(--navy);line-height:1}.brand-name{font-weight:700;font-size:16px;color:var(--navy2);line-height:1}.subtitle{margin:0;font-size:12.5px;color:var(--muted)}
+    .tabs{display:flex;border:1px solid var(--line);border-radius:6px;overflow:hidden;margin:0 0 20px}.tab{flex:1;text-align:center;padding:9px 0;cursor:pointer;color:var(--muted);font-size:14px;background:var(--paper)}.tab.active{color:#fff;background:var(--accent);font-weight:600}
+    label{display:block;font-size:12px;color:var(--muted);margin:14px 0 6px} input{width:100%;padding:11px 13px;border:1px solid var(--line);border-radius:6px;background:var(--field);font-size:14px;color:var(--ink);outline:none} input:focus{border-color:var(--accent);background:var(--field-focus);box-shadow:0 0 0 3px rgba(59,90,102,.10)}
+    .row{display:grid;grid-template-columns:1fr 112px;gap:10px;align-items:end}.btn{width:100%;margin-top:22px;padding:11px 0;border:1px solid transparent;border-radius:6px;cursor:pointer;background:var(--accent);color:#fff;font-size:14.5px;font-weight:600}.btn:hover{background:var(--accent-d)}.btn.secondary{margin-top:0;background:#fff;color:var(--accent);border-color:var(--line)}.btn[disabled]{opacity:.6;cursor:default}
+    .msg{min-height:18px;margin-top:14px;font-size:12.5px;text-align:center}.msg.err{color:#b5654d}.msg.ok{color:#5e7d5f}.footnote{margin-top:18px;padding-top:15px;border-top:1px solid var(--line-soft);font-size:11.5px;line-height:1.75;color:var(--muted);text-align:center}.hidden{display:none}
+    body.gf-dark{--ink:#ece5d6;--paper:#2b2720;--field:#332e26;--field-focus:#3d372d;--accent:#8fb3bd;--accent-d:#a3c5cd;--line:#3a352c;--line-soft:#332e26;--muted:#a89e8a;--navy:#cdd6e2;--navy2:#aeb9c8;background:radial-gradient(120% 90% at 50% 0%,#221f1a 0%,#1a1713 70%,#15120e 100%)}
+  </style>
+</head>
+<body>
+  <script>try{if(localStorage.getItem("gf-theme")==="dark")document.body.classList.add("gf-dark");}catch(e){}</script>
+  <div class="card">
+    <div class="brand"><div class="wordmark-line"><span class="wordmark">Glowfish_Reader</span><span class="brand-name">史料阅读器</span></div><p class="subtitle">账号仅用于验证试用与会员状态，史料和设置仍保存在本机</p></div>
+    <div class="tabs"><div class="tab active" data-tab="register">手机号注册</div><div class="tab" data-tab="login">密码登录</div></div>
+    <form id="registerForm" autocomplete="on">
+      <label for="rgPhone">手机号</label><input id="rgPhone" type="tel" autocomplete="tel" placeholder="请输入手机号">
+      <div class="row"><div><label for="rgCode">验证码</label><input id="rgCode" inputmode="numeric" maxlength="6" placeholder="6 位验证码"></div><button id="sendCode" class="btn secondary" type="button">获取验证码</button></div>
+      <label for="rgPass">设置密码（至少 6 位）</label><input id="rgPass" type="password" autocomplete="new-password" placeholder="设置登录密码">
+      <label for="rgPass2">确认密码</label><input id="rgPass2" type="password" autocomplete="new-password" placeholder="再次输入密码">
+      <button class="btn" type="submit">注册并开始 7 天试用</button>
+    </form>
+    <form id="loginForm" class="hidden" autocomplete="on">
+      <label for="lgUser">手机号</label><input id="lgUser" type="tel" autocomplete="username" placeholder="请输入手机号">
+      <label for="lgPass">密码</label><input id="lgPass" type="password" autocomplete="current-password" placeholder="请输入密码">
+      <button class="btn" type="submit">登录</button>
+    </form>
+    <div id="msg" class="msg"></div><div class="footnote">新账号默认获得 7 天试用。试用或会员状态由服务器校验，本机不上传史料内容。</div>
+  </div>
+  <script>
+    "use strict"; const $=(s)=>document.querySelector(s); const msg=(t,ok)=>{const m=$("#msg");m.textContent=t||"";m.className="msg "+(ok?"ok":"err");};
+    function show(tab){document.querySelectorAll(".tab").forEach((x)=>x.classList.toggle("active",x.dataset.tab===tab));$("#registerForm").classList.toggle("hidden",tab!=="register");$("#loginForm").classList.toggle("hidden",tab!=="login");msg("");}
+    document.querySelectorAll(".tab").forEach((t)=>t.onclick=()=>show(t.dataset.tab));
+    async function post(url,data){const r=await fetch(url,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(data)});const j=await r.json().catch(()=>({}));if(!r.ok)throw new Error(j.detail||j.reason||r.statusText);return j;}
+    let left=0,timer=null; function tick(){const b=$("#sendCode");if(left<=0){b.disabled=false;b.textContent="获取验证码";clearInterval(timer);return;}b.disabled=true;b.textContent=left+" 秒";left--;}
+    $("#sendCode").onclick=async()=>{const phone=$("#rgPhone").value.trim();if(!phone)return msg("请先填写手机号");try{await post("/api/sms/send",{phone});msg("验证码已发送",true);left=60;tick();timer=setInterval(tick,1000);}catch(e){msg(e.message);}};
+    $("#registerForm").onsubmit=async(e)=>{e.preventDefault();const phone=$("#rgPhone").value.trim(),code=$("#rgCode").value.trim(),password=$("#rgPass").value,p2=$("#rgPass2").value;if(!phone||!code||!password)return msg("请填写手机号、验证码和密码");if(password.length<6)return msg("密码至少 6 位");if(password!==p2)return msg("两次输入的密码不一致");const btn=e.target.querySelector(".btn[type=submit]");btn.disabled=true;try{await post("/api/register/phone",{phone,code,password});location.href="/";}catch(err){msg(err.message);btn.disabled=false;}};
+    $("#loginForm").onsubmit=async(e)=>{e.preventDefault();const login=$("#lgUser").value.trim(),password=$("#lgPass").value;if(!login||!password)return msg("请填写手机号和密码");const btn=e.target.querySelector(".btn");btn.disabled=true;try{await post("/api/login/password",{login,password});location.href="/";}catch(err){msg(err.message);btn.disabled=false;}};
+    fetch("/api/me").then((r)=>{if(r.ok)return r.json();}).then((me)=>{if(me&&me.username&&me.username!=="local")location.href="/";}).catch(()=>{});
+  </script>
+</body>
+</html>

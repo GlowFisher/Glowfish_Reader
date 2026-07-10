@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- 改造段①：全局软件名称统一为「Glowfish_Reader 史料阅读器」 -->
+  <title>Glowfish Reader 史料阅读器</title>
+  <link rel="stylesheet" href="buttons.css?v=20260707-ui">
+  <link rel="stylesheet" href="style.css?v=20260709-revert1">
+  <link rel="stylesheet" href="notebook.css?v=20260709-font3">
+  <link rel="stylesheet" href="guofeng.css?v=20260709-setyahei2">
+  <link rel="stylesheet" href="theme.css?v=20260707-ui">
+  <link rel="stylesheet" href="login-modal.css?v=20260710-wordmark">
+  <!-- 商标 favicon：与 glowfish 图库同一标识（深蓝 G 环 + 青绿点），见 static/favicon.png -->
+  <link rel="icon" type="image/png" href="favicon.png">
+</head>
+<body>
+  <!-- iter-001 新增：body 解析首行即依 localStorage 应用深色主题，先于内容绘制，避免闪烁 -->
+  <script>try{if(localStorage.getItem("gf-theme")==="dark")document.body.classList.add("gf-dark");}catch(e){}</script>
+  <!-- 顶部全局通栏工具栏：左[标题·文件夹框·翻页] → 中[保存·导出] → 大片空白 → 右[排版·简繁·撤销恢复·字数·设置] -->
+  <div id="bar">
+    <span class="brand"><span class="wordmark">Glowf<span class="gf-i">ı</span>sh Reader</span><span class="brand-name">史料阅读器</span></span>
+    <span class="gf-dateline">本地运行 · 永不上云</span>
+    <span class="bar-gap"></span>
+    <span id="mainBtns">          <!-- 保存 / 导入 / 导出（永久固定显示；精修扁平线性图标：存档盘 / 收纳向下入盘 / 取出向上出盘；导入/导出为下拉菜单） -->
+      <button id="saveBtn" class="btn btn-main gf-top" title="保存一个版本快照（本机存档，可回溯）">
+        <svg class="gf-ic" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 5h10l2 2v10l-2 2H7l-2-2V7l2-2z"/><path d="M16 5v4h3"/><path d="M8.5 9h7"/><path d="M8.5 12h7"/><path d="M8.5 15h3.5"/></svg> 保存</button>
+      <button id="importBtn" class="btn btn-main gf-top" title="导入本地史料（文件/文件夹，JPG/PDF）">
+        <svg class="gf-ic" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 14.5v2.5A1.5 1.5 0 0 0 6.5 18.5h11a1.5 1.5 0 0 0 1.5-1.5v-2.5"/><path d="M12 4.5v8.5"/><path d="M8.5 9.5 12 13l3.5-3.5"/></svg> 导入</button>
+      <button id="exportBtn" class="btn btn-main gf-top" title="导出辑录（本页 / 整个笔记本，可带批注）" aria-haspopup="menu">
+        <svg class="gf-ic" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 14.5v2.5A1.5 1.5 0 0 0 6.5 18.5h11a1.5 1.5 0 0 0 1.5-1.5v-2.5"/><path d="M12 13V4.5"/><path d="M8.5 8 12 4.5 15.5 8"/></svg> 导出<svg class="gf-caret" viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6l4 4 4-4"/></svg></button>
+    </span>
+    <span id="importProgress" class="hidden"></span>   <!-- 新增①：导入进度（导出右侧，实时%，完成隐藏） -->
+    <span id="importFail" class="hidden"></span>       <!-- 解析失败文件小字提示，不阻断整体 -->
+    <span id="regionOcrStatus" class="hidden" aria-live="polite">正在识别中……</span>
+    <span class="bar-spacer"></span>             <!-- 导出右侧大片空白分隔区 -->
+    <span id="rightGroup">
+      <!-- 改造段④：横/竖排版切换并入工具栏右组（单键 toggle，临时视图切换）。
+           视觉再设计 v2：去「纯净」按钮——纯净校对恒为默认（app.js pureMode 恒 true），全键盘点校保留 -->
+      <button id="layoutBtn" class="btn btn-sec hidden" title="切换 横排 / 竖排">横排</button>
+      <button id="scriptBtn" class="btn btn-sec hidden" title="点击切换简体／繁体">简体</button>
+      <span id="hist" class="hidden">
+        <button id="undoBtn" class="btn btn-sec icon" title="撤销 (Ctrl+Z)" disabled><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-4"/></svg></button>
+        <button id="redoBtn" class="btn btn-sec icon" title="恢复 (Ctrl+Y)" disabled><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 14 5-5-5-5"/><path d="M20 9H9a5 5 0 0 0 0 10h4"/></svg></button>
+      </span>
+      <span id="statPage" class="stat-box hidden"></span>   <!-- ③ 当前页字数 -->
+      <span id="statDelta" class="stat-box hidden"></span>  <!-- ② 改动字数 -->
+
+      <!-- 搜索：放大镜（设置左侧，样式与设置一致），点开下拉搜索面板 -->
+<button id="searchBtn" class="btn btn-sec icon" title="搜索点校文本"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg></button>
+      <!-- 视觉再设计 v2：公告入口，点击弹公告弹窗（内容暂空，见 notice.js） -->
+      <button id="noticeBtn" class="btn btn-sec icon" title="公告"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 7 3 9H3c0-2 3-2 3-9"/><path d="M10.3 21a2 2 0 0 0 3.4 0"/></svg></button>
+      <span id="accountBox" class="account-box hidden">
+        <button id="accountBtn" class="btn btn-sec icon account-btn" title="用户" aria-haspopup="menu" aria-expanded="false">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21a8 8 0 0 0-16 0"/><circle cx="12" cy="7" r="4"/></svg>
+        </button>
+        <div id="accountMenu" class="popover account-menu hidden" role="menu" aria-label="用户">
+          <div class="account-menu-name" id="accountMenuName"></div>
+          <div class="account-menu-status" id="accountMenuStatus"></div>
+          <button id="logoutBtn" class="account-menu-logout" role="menuitem">退出登录</button>
+        </div>
+      </span>
+      <button id="settingsBtn" class="btn btn-sec icon" title="设置"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
+    </span>
+
+    <!-- 搜索下拉面板（固定右上，绝对定位在放大镜下方） -->
+    <div id="searchPanel" class="hidden">
+      <div class="sp-head">
+        <input id="searchInput" type="text" aria-label="搜索点校文本" placeholder="" autocomplete="off">
+        <span id="searchCount" class="sp-count"></span>
+      </div>
+      <div id="searchResults" class="sp-results"></div>
+    </div>
+  </div>
+
+  <!-- 新增⑥：自定义背景图选择器（隐藏 input；仅单张 JPG；浏览器原生弹窗天然置顶） -->
+  <input id="bgImgInput" type="file" accept=".jpg,.jpeg,image/jpeg" aria-label="自定义画布背景图" class="hidden">
+
+  <!-- 浏览器化导入：多选文件 input（替代原生 PowerShell 选择器） -->
+  <input id="impFilesInput" type="file" accept=".jpg,.jpeg,.png,.pdf" multiple aria-label="选择导入文件" class="hidden">
+
+  <!-- 导出下拉菜单（锚定导出按钮下方）：选择页面 / 整个笔记本 + 是否带批注笔记 / 原图 -->
+  <div id="exportMenu" class="popover bar-menu hidden" role="menu" aria-label="导出">
+    <div class="bar-menu-section">
+      <button id="expSelect" class="bar-menu-item" role="menuitem">选择页面</button>
+      <button id="expNb" class="bar-menu-item" role="menuitem">整个笔记本</button>
+    </div>
+    <div class="bar-menu-options">
+      <label class="bar-menu-check"><input type="checkbox" id="expWithAnnot"><span>是否带批注笔记</span></label>
+      <label class="bar-menu-check"><input type="checkbox" id="expWithImage"><span>附带原图</span></label>
+    </div>
+  </div>
+<!-- 视觉再设计 v2：公告弹窗（内容暂空，notice.js 预留后续公告源接口） -->
+  <div id="noticeModal" class="modal-mask hidden">
+    <div class="modal notice-modal">
+      <div class="modal-title">公告</div>
+      <div class="modal-body" id="noticeBody">
+        <div class="notice-empty"><span class="gf-seal">告</span><span class="t">暂无公告</span></div>
+      </div>
+      <div class="modal-actions">
+        <button id="noticeClose" class="btn btn-sec">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="settingsModal" class="modal-mask hidden">
+    <div class="modal set-modal">
+      <div class="modal-title">设置</div>
+      <div id="setBody"></div>            <!-- settings.js 据 SET_SCHEMA 渲染 -->
+      <div class="modal-actions">
+        <button id="setReset" class="btn btn-sec reset">恢复默认设置</button>
+        <button id="setSave" class="btn btn-main">保存</button>
+        <button id="setCancel" class="btn btn-sec">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- iter-001 新增：快捷键帮助浮层（按 ? 唤出） -->
+  <div id="shortcutModal" class="modal-mask hidden">
+    <div class="modal sc-modal">
+      <div class="modal-title">键盘快捷键</div>
+      <div class="sc-table">
+        <span class="sc-key">← / PageUp / [</span><span class="sc-desc">上一页（到首页跳上一条史料）</span>
+        <span class="sc-key">→ / PageDown / ]</span><span class="sc-desc">下一页（到末页跳下一条史料）</span>
+        <span class="sc-key">Ctrl + S</span><span class="sc-desc">保存版本快照</span>
+        <span class="sc-key">Ctrl + F</span><span class="sc-desc">打开 / 关闭搜索面板</span>
+        <span class="sc-key">Ctrl + + / −</span><span class="sc-desc">原图放大 / 缩小</span>
+        <span class="sc-key">Ctrl + 0</span><span class="sc-desc">原图缩放复位（适应窗口）</span>
+        <span class="sc-key">Ctrl + Z / Y</span><span class="sc-desc">撤销 / 恢复</span>
+        <span class="sc-key">Ctrl + Shift + L</span><span class="sc-desc">切换 深色 / 浅色护眼主题</span>
+        <span class="sc-key">?</span><span class="sc-desc">显示 / 关闭本帮助</span>
+        <span class="sc-key">Esc</span><span class="sc-desc">关闭弹窗 / 面板</span>
+      </div>
+      <div class="sc-note">在文本框输入时，[ ] ? 等字符键正常输入、不触发快捷键。</div>
+      <div class="modal-actions">
+        <button id="scClose" class="btn btn-sec">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="confirmModal" class="modal-mask hidden">
+    <div class="modal">
+      <div class="modal-title">删除本行</div>
+      <div class="modal-body">确认删除该文本条目？删除后可用撤销 (Ctrl+Z) 恢复。</div>
+      <div class="modal-actions">
+        <button id="cdConfirm" class="btn danger">确认删除</button>
+        <button id="cdCancel" class="btn btn-sec">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 新增二：删除当前页 二次确认弹窗 -->
+  <div id="pageDelModal" class="modal-mask hidden">
+    <div class="modal">
+      <div class="modal-title">删除当前页</div>
+      <div class="modal-body">确认删除当前页？<br>由于没有备份，删除后原图、所有点校文本将全部清空，无法恢复。</div>
+      <div class="modal-actions">
+        <button id="pdConfirm" class="btn danger">确认删除</button>
+        <button id="pdCancel" class="btn btn-sec">取消</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 新增一：导入素材排序弹窗（居中置顶，遮挡主页面） -->
+  <div id="importModal" class="modal-mask hidden">
+    <div class="modal imp-modal">
+      <div class="modal-title">选择导入素材 <span id="impCount" class="imp-count"></span></div>
+      <div class="imp-target">
+        <label class="imp-target-field">
+          <span>导入到</span>
+          <select id="impTargetSelect" class="imp-target-select" aria-label="选择导入到哪个文件夹"></select>
+        </label>
+      </div>
+      <div class="imp-toolbar">
+        <button class="btn btn-sec" data-sort="nameAsc">名称升序</button>
+        <button class="btn btn-sec" data-sort="nameDesc">名称降序</button>
+        <button class="btn btn-sec" data-sort="mtimeAsc">时间升序</button>
+        <button class="btn btn-sec" data-sort="mtimeDesc">时间降序</button>
+        <button class="btn btn-sec" data-sort="reverse">一键逆序</button>
+        <span class="imp-hint">长按拖拽排序 · Ctrl 多选批量拖拽 · PDF 可展开分页</span>
+      </div>
+      <div id="impList" class="imp-list"></div>
+      <div class="modal-actions">
+        <button id="impReselect" class="btn btn-sec">重新选择素材</button>
+        <span style="flex:1"></span>
+        <button id="impCancel" class="btn btn-sec">取消导入</button>
+        <button id="impConfirm" class="btn btn-main">确认导入</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 顶层：新建/重命名文件夹弹窗（名称 + 标签） -->
+  <div id="nbModal" class="modal-mask hidden">
+    <div class="modal">
+      <div class="modal-title" id="nbModalTitle">新建文件夹</div>
+      <div class="modal-body nb-form">
+        <label class="nb-field"><span>名称</span><input id="nbModalName" type="text" placeholder="例：刘大鹏日记" autocomplete="off"></label>
+        <label class="nb-field"><span>标签</span><input id="nbModalTags" type="text" placeholder="" autocomplete="off"></label>
+      </div>
+      <div class="modal-actions">
+        <button id="nbModalCancel" class="btn btn-sec">取消</button>
+        <button id="nbModalOk" class="btn btn-main">确定</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 顶层：删除笔记本/文档 二次确认 -->
+  <div id="nbDelModal" class="modal-mask hidden">
+    <div class="modal">
+      <div class="modal-title">确认删除</div>
+      <div class="modal-body" id="nbDelMsg"></div>
+      <div class="modal-actions">
+        <button id="nbDelCancel" class="btn btn-sec">取消</button>
+        <button id="nbDelConfirm" class="btn danger">彻底删除</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 顶层：笔记本全局批注弹窗（钢笔图标入口） -->
+  <div id="nbAnnotModal" class="modal-mask hidden">
+    <div class="modal">
+      <div class="modal-title" id="nbAnnotTitle">笔记本批注</div>
+      <div class="modal-body nb-form">
+        <textarea id="nbAnnotText" class="nb-annot-text" aria-label="笔记本全局批注" placeholder="录入该笔记本的全局批注…"></textarea>
+      </div>
+      <div class="modal-actions">
+        <button id="nbAnnotCancel" class="btn btn-sec">取消</button>
+        <button id="nbAnnotOk" class="btn btn-main">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="workspace">
+    <!-- 顶层（新增）：Notebook 知识库导航。一级=笔记本，二级=本笔记本内源史料缩略图。 -->
+    <aside id="nbNav">
+      <div id="nbHead">
+        <button id="nbNewBtn" class="btn btn-main">＋ 新建文件夹</button>
+      </div>
+      <div id="nbTree"></div>
+    </aside>
+    <div id="nbResize" title="拖拽调整导航宽度"></div>
+
+  <div id="main">
+    <div id="left">
+      <!-- 翻页控件迁移至画布顶部；翻页跨史料连贯（跟随左侧笔记本内排序依次加载） -->
+      <span id="canvasNav" class="navbox hidden">
+        <button id="prevPage" class="btn navbtn" title="上一页（← / PageUp；到本史料首页则跳上一条史料末页）"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg></button>
+        <span id="pageLabel"></span>
+        <button id="nextPage" class="btn navbtn" title="下一页（→ / PageDown；到本史料末页则跳下一条史料首页）"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></button>
+      </span>
+      <!-- 底图工具栏：缩放比例、缩放控制、识别框开关；橡皮擦仅在识别框模式中显示。 -->
+      <div id="zoomCtl">
+        <span id="zoomPct">100%</span>
+        <button id="zoomReset" class="btn icon" title="返回默认大小（适应窗口 = 100%）"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4"/></svg></button>
+        <button id="zoomIn" class="btn icon" title="放大 (Ctrl +)"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M11 8v6M8 11h6"/></svg></button>
+        <button id="zoomOut" class="btn icon" title="缩小 (Ctrl −)"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M8 11h6"/></svg></button>
+        <button id="boxToggle" class="btn icon" title="进入框选识别模式：直接在底图上拖出区域重新识别">识</button>
+        <button id="boxErase" class="btn icon hidden" title="橡皮擦：开启后点击识别框删除对应点校文本；再次点击退出擦除模式" aria-label="橡皮擦" aria-pressed="false" hidden><svg viewBox="0 0 24 24" width="17" height="17"><g transform="rotate(-35 12 11)"><rect x="4.5" y="6.5" width="15" height="9.5" rx="2.4" fill="#f6e2dc" stroke="#a83a26" stroke-width="1.3"/><path d="M4.5 11.4h15V9a2.5 2.5 0 0 0-2.5-2.5H7A2.5 2.5 0 0 0 4.5 9z" fill="#a83a26"/></g><line x1="3.5" y1="19.6" x2="20.5" y2="19.6" stroke="#a83a26" stroke-width="1.6" stroke-linecap="round" opacity=".55"/></svg></button>
+      </div>
+      <div id="imgWrap"><img id="pageImg" alt="" draggable="false"><div id="boxes"></div></div>
+      <!-- 空白占位：无原图时显示（竖排楷书重复三遍） -->
+      <div id="leftPlaceholder" class="canvas-ph"><div class="ph-text">底图区　底图区　底图区</div></div>
+    </div>
+    <div id="divider" title="拖拽调整左右宽度"></div>
+    <div id="right">
+      <!-- 校读模式切换：整页点校（默认，视觉再设计 v2 前置）/ 逐行点校（分行控件） -->
+      <div id="proofModeBar">
+        <span class="pm-seg">
+          <button id="pmPage" class="btn btn-seg">整页点校</button>
+          <button id="pmRow" class="btn btn-seg">逐行点校</button>
+        </span>
+      </div>
+      <!-- 横排渲染 #lines / 竖排渲染 #vlines / 整页 #pageText，均由 editor.js 注入 editorBody -->
+      <div id="editorBody"></div>
+      <!-- 空白占位：无文本时显示（竖排楷书重复三遍） -->
+      <div id="rightPlaceholder" class="canvas-ph"><div class="ph-text">点校区　点校区　点校区</div></div>
+    </div>
+  </div>
+  </div><!-- /#workspace -->
+
+  <!-- 空白引导页（无任何笔记本时显示，覆盖工作区） -->
+  <div id="nbWelcome" class="hidden">
+    <div class="nb-welcome-card">
+      <div class="nb-welcome-title">Glowfish_Reader 史料阅读器</div>
+      <div class="nb-welcome-sub">本地知识库 · 原图与批注只存于本机浏览器，不上传任何云端</div>
+      <button id="nbWelcomeNew" class="btn btn-main nb-welcome-btn">新建第一个文件夹</button>
+    </div>
+  </div>
+
+  <!-- 顶层附属：批注面板（视觉再设计 v2：划批列表 + 本页总批），内容随 proof 自动保存。
+       划选即批：整页点校中划拉选中文字 → 浮出「＋批注」→ 落成朱色划批标记，点标记看/改/删（annotations.js） -->
+  <div id="annotPanel" class="hidden">
+    <div id="annBar">
+      <span class="ann-title">批注<span id="annCnt" class="ann-cnt"></span></span>
+      <button id="annSplitBack" class="btn btn-sec hidden" title="该段由 OCR 碎行自动聚合而成，可拆回原始块">拆回原始块</button>
+      <button id="annToggle" class="btn btn-sec icon" title="收起 / 展开">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+      </button>
+    </div>
+    <div id="annBody">
+      <div id="annList" class="ann-list" aria-label="本页划批列表"></div>
+      <div class="ann-col">
+        <label>本页总批</label>
+        <textarea id="annPage" aria-label="本页总批" placeholder="对当前页的整页批注…"></textarea>
+      </div>
+    </div>
+  </div>
+
+  <div id="paneZoomBadge">缩放 100%</div>
+  <div id="toast"></div>
+
+  <!-- 弹窗登录挂载点 + 组件（须先于 auth-guard.js：在此捕获原生 fetch） -->
+  <div id="gf-login-modal-root"></div>
+  <script src="login-modal.js?v=20260710-wordmark"></script>
+  <script src="auth-guard.js?v=20260707-ui"></script>
+  <script src="settings.js?v=20260709-setorder"></script>
+  <script src="editor.js?v=20260707-ui"></script>
+  <script src="importer.js?v=20260707-ui"></script>
+  <script src="db.js?v=20260709-savedtoast"></script>
+  <script src="app.js?v=20260707-ui"></script>
+  <script src="viewer.js?v=20260708-eraser"></script>
+  <script src="dnd.js?v=20260707-ui"></script>
+  <script src="notebook.js?v=20260707-ui"></script>
+  <script src="annotations.js?v=20260707-ui"></script>
+  <script src="search.js?v=20260707-ui"></script>
+  <script src="update.js?v=20260707-ui"></script>
+  <script src="notice.js?v=20260707-ui"></script>
+</body>
+</html>
+
