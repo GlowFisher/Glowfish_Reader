@@ -330,7 +330,9 @@ def test_top_bar_popovers_stay_above_proof_mode_bar():
     assert "body.gf-dark #proofModeBar { background:" not in theme
 def test_engine_pref_click_persists_immediately():
     settings = read_static("settings.js")
-    assert 'if (b.dataset.key === "engine_pref") persistEnginePreference();' in settings
+    assert 'if (b.dataset.key === "engine_pref") return setEnginePreference(v);' in settings
+    assert "function setEnginePreference(value)" in settings
+    assert "persistEnginePreference();" in settings
     assert "function persistEnginePreference()" in settings
     assert "JSON.stringify({ engine_pref: settings.engine_pref || \"\" })" in settings
     assert "toast(" in settings
