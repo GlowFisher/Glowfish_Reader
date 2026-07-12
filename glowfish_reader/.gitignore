@@ -64,3 +64,6 @@ tmp/
 
 # 官网源（website/）自 2026-07-09 起入库：它只存在于一台开发机上，丢了无从恢复，
 # 且 deploy_site.sh 就是拿它做部署输入。产物 2.9MB，值这个空间。
+
+# Agent-managed isolated worktrees
+.worktrees/
