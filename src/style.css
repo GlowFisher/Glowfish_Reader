@@ -279,7 +279,12 @@ body.gf-dark .imp-target-field { color: var(--ink-2); }
 body.gf-dark .imp-target-select { background: #26221b; color: var(--ink); border-color: var(--line); box-shadow: inset 0 1px 2px rgba(0,0,0,.18); }
 @media (max-width: 720px) { .imp-target { grid-template-columns: 1fr; } }
 .imp-toolbar { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; margin: 8px 0 10px; }
-.imp-toolbar .btn-sec { padding: 6px 12px; font-size: 12.5px; }
+.imp-toolbar .imp-sort-btn { padding: 6px 12px; font-size: 12.5px; }
+.imp-engine-switch { display: inline-flex; flex: 0 1 auto; min-width: 0; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+.imp-engine-switch .btn-seg { flex: 0 1 auto; min-width: 0; border: none; border-radius: 0; background: #fff; color: #666; padding-left: 14px; padding-right: 14px; }
+.imp-engine-switch .btn-seg:not(:last-child) { border-right: 1px solid var(--line); }
+.imp-engine-switch .btn-seg.on { background: var(--brand); color: #fff; }
+.imp-engine-switch .btn-seg.on:hover { background: var(--brand-d); color: #fff; }
 .imp-hint { font-size: 12px; color: #999; margin-left: auto; }
 .imp-list { flex: 1; overflow-y: auto; border: 1px solid #eaeaea; border-radius: 10px;
   padding: 6px; min-height: 220px; position: relative; }

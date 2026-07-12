@@ -7,6 +7,8 @@ ROOT = Path(__file__).resolve().parent
 
 def test_import_engine_switch_uses_shared_preference_helpers_and_modal_scope():
     settings = (ROOT / "static" / "settings.js").read_text(encoding="utf-8")
+    html = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
+    css = (ROOT / "static" / "style.css").read_text(encoding="utf-8")
 
     assert '["ppocrv6_onnx", "\u5feb\u901f\u7248"]' in settings
     assert "function setEnginePreference(value)" in settings
@@ -19,3 +21,9 @@ def test_import_engine_switch_uses_shared_preference_helpers_and_modal_scope():
     assert 'importModal.querySelectorAll("[data-engine]")' in settings
     assert 'setEnginePreference(v)' in settings
     assert "updateSegBtns(); syncImportEngineSwitch(); applyAllSettings();" in settings
+
+    assert html.count('class="btn btn-sec imp-sort-btn"') == 5
+    assert html.index('data-sort="reverse"') < html.index('id="impEngineFull"')
+    assert 'class="imp-engine-switch"' in html
+    assert ".imp-toolbar .imp-sort-btn" in css
+    assert ".imp-engine-switch" in css
