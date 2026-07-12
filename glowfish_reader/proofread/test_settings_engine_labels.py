@@ -14,7 +14,8 @@ def read_static(name):
 def test_settings_engine_label_uses_actual_onnx_engine_value():
     settings = read_static("settings.js")
     assert '["", "满血版"]' in settings
-    assert '["ppocrv6_onnx", "轻量版"]' in settings
+    assert '["ppocrv6_onnx", "快速版"]' in settings
+    assert "轻量版" not in settings
     assert "PP-OCRv6 medium" not in settings
     assert "ppocrv6_high" not in settings
     assert '["onnx", "快速"]' not in settings

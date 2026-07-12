@@ -30,7 +30,7 @@ const SET_SCHEMA = [
     { key: "lowconf_red", label: "低置信识别文字标红", opts: [[true, "开启"], [false, "关闭"]], note: "开启后底图区横竖排低置信识别文字统一标红，直观区分识别误差。" },
   ] },
   { title: "点校区设置", collapsible: true, items: [
-    { key: "engine_pref", label: "识别引擎", opts: [["", "满血版"], ["ppocrv6_onnx", "轻量版"]], note: "满血版质量优先，处理可能较慢；轻量版速度优先，更适合低配机器。" },
+    { key: "engine_pref", label: "识别引擎", opts: [["", "满血版"], ["ppocrv6_onnx", "快速版"]], note: "满血版质量优先，处理可能较慢；快速版速度优先，更适合低配机器。" },
     { key: "default_script", label: "默认输出文字", opts: [["s", "简体"], ["t", "繁体"]], note: "导入新史料时自动生效；顶部简繁按钮仅临时预览，不改文件存储文字。" },
     { key: "punct_pos", label: "标点添加位置", opts: [["caret", "光标处"], ["end", "末尾"]], note: "逗号、句号按所选规则插入；光标处=输入框插入点，末尾=文本尾部追加。" },
     { key: "text_layout", label: "默认排版格式", opts: [["horizontal", "横排"], ["vertical", "竖排"]], note: "永久默认排版；顶部排版按钮为临时视图切换，不改此项。" },
@@ -86,13 +86,13 @@ function renderSettingsPanel() {
   // 二元分段单选
   body.querySelectorAll(".btn-seg").forEach((b) => b.onclick = () => {
     const v = JSON.parse(b.dataset.val);
+    if (b.dataset.key === "engine_pref") return setEnginePreference(v);
     settings[b.dataset.key] = v;
     if (b.dataset.key === "canvas_bg") {
       if (v === "custom") $("#bgImgInput").click();
       else { customBgUrl = null; applyCanvasBg(); }   // 选纯色=切回纯色模式
     }
     if (b.dataset.key === "theme_mode") applyThemeMode(v, true);
-    if (b.dataset.key === "engine_pref") persistEnginePreference();
     if (b.dataset.key === "export_with_annot") gfWriteExportAnnot(v);             // 前端项即时落 localStorage
     if (b.dataset.key === "text_font") {                 // 文本字体：即时预览，无需先点保存
       const host = $("#editorBody");
@@ -180,6 +180,17 @@ function persistEnginePreference() {
     body: JSON.stringify({ engine_pref: settings.engine_pref || "" }) }).catch(() => {});
 }
 
+function syncImportEngineSwitch() {
+  document.querySelectorAll("[data-engine]").forEach((button) =>
+    button.classList.toggle("on", button.dataset.engine === (settings.engine_pref || "")));
+}
+function setEnginePreference(value) {
+  settings.engine_pref = value || "";
+  persistEnginePreference();
+  updateSegBtns();
+  syncImportEngineSwitch();
+}
+
 let autosaveTimer = null;
 function setupAutosave() {
   if (autosaveTimer) { clearInterval(autosaveTimer); autosaveTimer = null; }
@@ -216,12 +227,16 @@ async function initSettings() {
   try { settings.theme_mode = localStorage.getItem("gf-theme") === "dark" ? "dark" : "light"; } catch (e) { settings.theme_mode = "light"; }
   settings.confirm_delete = true;                       // 锁定：删除一律二次确认（开关已从面板移除）
   settings.export_with_annot = gfReadExportAnnot();     // 前端项从 localStorage 恢复
-  updateSegBtns(); applyAllSettings();
+  updateSegBtns(); syncImportEngineSwitch(); applyAllSettings();
   $("#settingsBtn").onclick = () => { updateSegBtns(); $("#settingsModal").classList.remove("hidden"); };
   $("#setSave").onclick = saveSettings;
   $("#setCancel").onclick = () => $("#settingsModal").classList.add("hidden");
   $("#setReset").onclick = resetSettings;
   // 新增⑥：选中本地图片→objectURL 即时作为画布背景（不上传、不入 settings.json）
+  const impEngineFull = document.querySelector('[data-engine=""]') || $("#impEngineFull");
+  const impEngineFast = document.querySelector('[data-engine="ppocrv6_onnx"]') || $("#impEngineFast");
+  if (impEngineFull) impEngineFull.onclick = () => setEnginePreference("");
+  if (impEngineFast) impEngineFast.onclick = () => setEnginePreference("ppocrv6_onnx");
   $("#bgImgInput").onchange = (e) => {
     const f = e.target.files && e.target.files[0];
     if (!f) return;
