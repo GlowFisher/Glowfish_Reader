@@ -172,11 +172,15 @@
         </label>
       </div>
       <div class="imp-toolbar">
-        <button class="btn btn-sec" data-sort="nameAsc">名称升序</button>
-        <button class="btn btn-sec" data-sort="nameDesc">名称降序</button>
-        <button class="btn btn-sec" data-sort="mtimeAsc">时间升序</button>
-        <button class="btn btn-sec" data-sort="mtimeDesc">时间降序</button>
-        <button class="btn btn-sec" data-sort="reverse">一键逆序</button>
+        <button class="btn btn-sec imp-sort-btn" data-sort="nameAsc">名称升序</button>
+        <button class="btn btn-sec imp-sort-btn" data-sort="nameDesc">名称降序</button>
+        <button class="btn btn-sec imp-sort-btn" data-sort="mtimeAsc">时间升序</button>
+        <button class="btn btn-sec imp-sort-btn" data-sort="mtimeDesc">时间降序</button>
+        <button class="btn btn-sec imp-sort-btn" data-sort="reverse">一键逆序</button>
+        <span class="imp-engine-switch" role="group" aria-label="识别引擎">
+          <button id="impEngineFull" class="btn btn-seg" type="button" data-engine="" title="满血版质量优先，处理可能较慢">满血</button>
+          <button id="impEngineFast" class="btn btn-seg" type="button" data-engine="ppocrv6_onnx" title="快速版速度优先，更适合低配机器">快速</button>
+        </span>
         <span class="imp-hint">长按拖拽排序 · Ctrl 多选批量拖拽 · PDF 可展开分页</span>
       </div>
       <div id="impList" class="imp-list"></div>
