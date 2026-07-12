@@ -181,7 +181,9 @@ function persistEnginePreference() {
 }
 
 function syncImportEngineSwitch() {
-  document.querySelectorAll("[data-engine]").forEach((button) =>
+  const importModal = document.querySelector("#importModal");
+  if (!importModal) return;
+  importModal.querySelectorAll("[data-engine]").forEach((button) =>
     button.classList.toggle("on", button.dataset.engine === (settings.engine_pref || "")));
 }
 function setEnginePreference(value) {
@@ -233,10 +235,12 @@ async function initSettings() {
   $("#setCancel").onclick = () => $("#settingsModal").classList.add("hidden");
   $("#setReset").onclick = resetSettings;
   // 新增⑥：选中本地图片→objectURL 即时作为画布背景（不上传、不入 settings.json）
-  const impEngineFull = document.querySelector('[data-engine=""]') || $("#impEngineFull");
-  const impEngineFast = document.querySelector('[data-engine="ppocrv6_onnx"]') || $("#impEngineFast");
-  if (impEngineFull) impEngineFull.onclick = () => setEnginePreference("");
-  if (impEngineFast) impEngineFast.onclick = () => setEnginePreference("ppocrv6_onnx");
+  const importModal = document.querySelector("#importModal");
+  if (importModal) {
+    importModal.querySelectorAll("[data-engine]").forEach((button) => {
+      button.onclick = () => setEnginePreference(button.dataset.engine);
+    });
+  }
   $("#bgImgInput").onchange = (e) => {
     const f = e.target.files && e.target.files[0];
     if (!f) return;
@@ -265,6 +269,6 @@ async function resetSettings() {
     settings.export_with_annot = false; gfWriteExportAnnot(false);   // 前端项一并重置
     try { settings.theme_mode = localStorage.getItem("gf-theme") === "dark" ? "dark" : "light"; } catch (e) { settings.theme_mode = "light"; }
     if (customBgUrl) { URL.revokeObjectURL(customBgUrl); customBgUrl = null; }   // 重置=清自定义背景图
-    updateSegBtns(); applyAllSettings(); toast("已恢复默认设置");
+    updateSegBtns(); syncImportEngineSwitch(); applyAllSettings(); toast("已恢复默认设置");
   } catch (e) { toast("重置失败：" + e.message); }
 }
