@@ -1,4 +1,4 @@
-/* GlowFish 史料阅读?—?升级 loop iter-001 新增层（最后加载）?
+/* Glowfish Reader 史料阅读?—?升级 loop iter-001 新增层（最后加载）?
  * 仅前端视?交互增强，不改任何业务逻辑?
  *   1) 深色护眼主题  body.gf-dark（重定向 CSS 变量 + 定点覆盖硬编码浅色）
  *   2) 快捷键帮助浮?#shortcutModal（复?.modal 弹窗体系?

@@ -318,6 +318,25 @@ function initImporter() {
 }
 
 async function confirmImport() {
+  if (confirmImport._busy) return;
+  confirmImport._busy = true;
+  confirmImport._requestId = (globalThis.crypto && crypto.randomUUID)
+    ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const buttons = [$("#impConfirm"), $("#impCancel"), $("#impReselect")].filter(Boolean);
+  const confirm = $("#impConfirm");
+  if (confirm && !confirm.dataset.idleText) confirm.dataset.idleText = confirm.textContent;
+  buttons.forEach((button) => { button.disabled = true; });
+  if (confirm) confirm.textContent = "?????";
+  try {
+    return await confirmImportOnce();
+  } finally {
+    confirmImport._busy = false;
+    buttons.forEach((button) => { button.disabled = false; });
+    if (confirm) confirm.textContent = confirm.dataset.idleText;
+  }
+}
+
+async function confirmImportOnce() {
   if (!impItems.length) return toast("没有可导入的素材");
   if (!impToken) return toast("上传令牌缺失，请重新选择素材");
   await impRenderTargetFolders();
@@ -347,6 +366,7 @@ async function confirmImport() {
         const data = await api("/api/open", { method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ token: impToken, items: g.items, name: g.name,
+            request_id: `${confirmImport._requestId}-${gi}`,
             punct_backend: (settings && settings.punct_backend) || "local" }) });
         if (keepCurrentOpen && typeof nbRegisterProofDoc === "function") nbRegisterProofDoc(data.proof, false, targetNotebookId);
         else {

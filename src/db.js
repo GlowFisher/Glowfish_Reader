@@ -1,5 +1,5 @@
 "use strict";
-/* GlowFish 史料阅读器 —— 本地持久化层 (IndexedDB)。
+/* Glowfish Reader 史料阅读器 —— 本地持久化层 (IndexedDB)。
  * 定位：缓存/索引层。缓存每份 proof 供刷新/重启「瞬时恢复」；笔记本树、文档索引、版本快照亦存于此。
  * 后端磁盘 _work/ 仍是 proof.json + 原图的持久源与取图来源。全程本机浏览器，无任何云端/上传。
  *
@@ -79,10 +79,25 @@ async function gfCacheProof() {
 }
 
 let _gfSaveTimer = null;
+let _gfSavePromise = Promise.resolve();
 /** 自动保存：编辑过程中频繁调用，1.5s 防抖后并行写「本地缓存 + 后端磁盘」（均在本机，无云端）。 */
 function gfScheduleSave() {
   clearTimeout(_gfSaveTimer);
-  _gfSaveTimer = setTimeout(() => { gfCacheProof(); gfDiskSave(); }, GF_SAVE_DEBOUNCE_MS);
+  _gfSaveTimer = setTimeout(() => {
+    _gfSaveTimer = null;
+    gfCacheProof();
+    gfDiskSave().catch(() => { /* 自动保存失败不打扰用户 */ });
+  }, GF_SAVE_DEBOUNCE_MS);
+}
+
+/** Flush pending edits before a disk-backed operation such as full-library search. */
+async function gfAwaitSave() {
+  if (_gfSaveTimer) {
+    clearTimeout(_gfSaveTimer);
+    _gfSaveTimer = null;
+  }
+  await gfCacheProof();
+  await gfDiskSave();
 }
 
 /** 按 batch 只保留最近 GF_SNAPSHOT_KEEP 条快照，多余的删除（失败静默，不影响保存）。 */
@@ -95,12 +110,15 @@ async function _gfPruneSnapshots(batch) {
 }
 
 /** 自动保存到后端磁盘 _work/<batch>/proof.json（durable backstop，失败静默）。 */
-async function gfDiskSave() {
-  try {
+function gfDiskSave() {
+  const save = async () => {
     if (typeof proof === "undefined" || !proof || !proof.batch) return;
     await api("/api/save", { method: "POST",
       headers: { "Content-Type": "application/json" }, body: JSON.stringify({ proof }) });
-  } catch (e) { /* 自动保存失败不打扰用户 */ }
+  };
+  // Serialize saves so an older request can never finish after a newer one.
+  _gfSavePromise = _gfSavePromise.then(save, save);
+  return _gfSavePromise;
 }
 
 /** 快照保存：把当前状态存为一个带时间戳的版本快照（IndexedDB），并顺带落盘最新状态。 */

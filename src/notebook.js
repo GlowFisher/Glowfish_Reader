@@ -1,5 +1,5 @@
 "use strict";
-/* GlowFish 史料阅读器 —— 顶层 Notebook 知识库（导航 + 顶层状态机）。
+/* Glowfish Reader 史料阅读器 —— 顶层 Notebook 知识库（导航 + 顶层状态机）。
  * 一个 Notebook = 一份独立研究课题，收纳多条中层「源史料」(=后端 batch / 一份 proof)。
  * 树结构存 IndexedDB(appstate.nbtree) 供瞬时首屏 + 后端 _work/notebooks.json 持久备份。
  * 打开文档 → 走 app.js 现有 applyLoaded；不改动中层画布/底层分段编辑。 */
@@ -605,12 +605,25 @@ function nbMoveDoc(docId, toNb, beforeDocId, before) {
 }
 
 // ---------- 打开文档 ----------
-async function nbOpenDoc(id, gotoLast) {
+const nbOpenInflight = new Map();
+
+function nbOpenDoc(id, gotoLast) {
   if (proof && proof.batch === id) {
     nbActiveDocId = id; renderTree();
     if (gotoLast && proof.pages.length) { pageIdx = proof.pages.length - 1; render(); }
-    return;
+    return Promise.resolve();
   }
+  if (nbOpenInflight.has(id)) return nbOpenInflight.get(id);
+  document.body.classList.add("nb-loading-doc");
+  const task = nbOpenDocOnce(id, gotoLast).finally(() => {
+    nbOpenInflight.delete(id);
+    if (!nbOpenInflight.size) document.body.classList.remove("nb-loading-doc");
+  });
+  nbOpenInflight.set(id, task);
+  return task;
+}
+
+async function nbOpenDocOnce(id, gotoLast) {
   let loaded = null, diskErr = null;
   try { loaded = await api("/api/load?batch=" + encodeURIComponent(id)); }
   catch (e) { diskErr = e; }
@@ -654,7 +667,7 @@ function nbRegisterProofDoc(pf, activate, targetNotebookId) {
       nbOpenState[targetNb.id] = true;
     }
     meta.pageCount = (pf.pages || []).length;
-    meta.displayName = pf.source || meta.displayName || id;
+    meta.displayName = meta.displayName || pf.source || id;
     if (!meta.firstPage && pf.pages && pf.pages[0]) meta.firstPage = pf.pages[0].page_id;
   }
   if (activate) {

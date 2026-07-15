@@ -1,5 +1,5 @@
 "use strict";
-/* GlowFish史料阅读编辑器 —— 编排层：全局状态、API、工具栏、撤销、加载/保存/导出。
+/* Glowfish Reader 史料阅读编辑器 —— 编排层：全局状态、API、工具栏、撤销、加载/保存/导出。
  * 右栏渲染与横竖交互见 editor.js；左栏底图见 viewer.js；拖拽排序见 dnd.js；设置见 settings.js。 */
 let proof = null, pageIdx = 0, lowConf = 0.85, batch = null;
 let pureMode = true;             // 纯净校对恒为默认（视觉再设计 v2 去开关钮）：隐藏每行工具栏，全键盘点校常开
@@ -367,7 +367,7 @@ async function browserSaveExport(fname, blob) {
   try {
     const handle = await window.showSaveFilePicker({
       suggestedName: fname,
-      types: [{ description: "GlowFish export", accept: { [mime]: [ext] } }],
+      types: [{ description: "Glowfish Reader export", accept: { [mime]: [ext] } }],
     });
     const writable = await handle.createWritable();
     await writable.write(blob);
@@ -410,37 +410,12 @@ async function downloadExport(body) {                    // 单次导出：POST 
   a.remove(); setTimeout(() => URL.revokeObjectURL(url), 2000);
   return { fname, n };
 }
-async function loadProofForExport(batchId) {
-  if (proof && proof.batch === batchId) return proof;
-  if (typeof gfGet === "function") {
-    try { const rec = await gfGet("proofs", batchId); if (rec && rec.proof) return rec.proof; } catch (e) {}
-  }
-  const loaded = await api("/api/load?batch=" + encodeURIComponent(batchId));
-  return loaded && loaded.proof;
-}
-
 async function selectedPagesExportBody(selected, pageMarks) {
-  const pages = [], pageIds = [];
-  let script = "s", source = "selected_pages";
   const nb = (typeof nbCur === "function") ? nbCur() : null;
-  if (nb && nb.name) source = nb.name;
-  for (const item of selected) {
-    if (!item || !item.batch || !item.page_ids || !item.page_ids.length) continue;
-    const pf = await loadProofForExport(item.batch);
-    if (!pf) continue;
-    script = pf.script || script;
-    const wanted = new Set(item.page_ids.map((id) => String(id)));
-    for (const pg of (pf.pages || [])) {
-      if (!wanted.has(String(pg.page_id))) continue;
-      pages.push(pg);
-      pageIds.push(pg.page_id);
-    }
-  }
-  if (!pages.length) return null;
   return {
     scope: "selected_pages",
-    proof: { batch: "selected_pages", source, script, engine: "merged", pages },
-    page_ids: pageIds,
+    selected,
+    name: (nb && nb.name) || "选中页面",
     page_marks: pageMarks,
   };
 }
@@ -470,6 +445,9 @@ async function doExport(scope) {
   }
   Object.assign(main, { with_annot: withAnnot, with_image: withImage });
   try {
+    if (typeof gfAwaitSave === "function") {
+      await gfAwaitSave();
+    }
     const m = await downloadExport(main);
     if (m.canceled) return;                              // 用户在原生保存对话框点了取消
     if (finishSelected && typeof nbFinishExportPageSelect === "function") nbFinishExportPageSelect();

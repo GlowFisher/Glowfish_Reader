@@ -1,5 +1,5 @@
 "use strict";
-/* GlowFish announcement modal.
+/* Glowfish Reader announcement modal.
  * Fetches a remote-hosted notice feed through the local backend and keeps read
  * state local to this browser profile. Announcement content is rendered as text.
  */
