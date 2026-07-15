@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.glowfishreader.com/proof.schema.v1.json",
+  "title": "Glowfish proof.json v1",
+  "type": "object",
+  "required": ["batch", "pages"],
+  "properties": {
+    "batch": {"type": "string"},
+    "pages": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/page"}
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "box": {
+      "type": "array",
+      "minItems": 4,
+      "maxItems": 4,
+      "items": {"type": "number"}
+    },
+    "line": {
+      "type": "object",
+      "required": ["id", "text", "box"],
+      "properties": {
+        "id": {"type": "string"},
+        "text_ocr": {"type": "string"},
+        "text_draft": {"type": "string"},
+        "text": {"type": "string"},
+        "box": {"$ref": "#/$defs/box"},
+        "score": {"type": "number"},
+        "para_break": {"type": "boolean", "default": false},
+        "deleted": {"type": "boolean", "default": false}
+      },
+      "additionalProperties": true
+    },
+    "page": {
+      "type": "object",
+      "required": ["page_id", "image", "lines", "order"],
+      "properties": {
+        "page_id": {"type": "string"},
+        "image": {"type": "string"},
+        "width": {"type": "integer", "minimum": 0},
+        "height": {"type": "integer", "minimum": 0},
+        "lines": {"type": "array", "items": {"$ref": "#/$defs/line"}},
+        "noise_lines": {"type": "array", "items": {"$ref": "#/$defs/line"}},
+        "order": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": true
+    }
+  }
+}

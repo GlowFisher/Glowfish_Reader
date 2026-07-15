@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.glowfishreader.com/ocr.schema.v1.json",
+  "title": "Glowfish OCR result v1",
+  "type": "object",
+  "properties": {
+    "_meta": {
+      "type": "object",
+      "properties": {
+        "engine": {"type": "string"},
+        "engine_config_hash": {"type": "string"}
+      },
+      "additionalProperties": true
+    }
+  },
+  "patternProperties": {
+    "^(?!_meta$).+": {
+      "type": "object",
+      "required": ["image", "width", "height", "lines"],
+      "properties": {
+        "image": {"type": "string"},
+        "width": {"type": "integer", "minimum": 0},
+        "height": {"type": "integer", "minimum": 0},
+        "lines": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["text", "box", "score"],
+            "properties": {
+              "text": {"type": "string"},
+              "box": {
+                "type": "array",
+                "minItems": 4,
+                "maxItems": 4,
+                "items": {"type": "number"}
+              },
+              "score": {"type": "number"}
+            },
+            "additionalProperties": true
+          }
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}

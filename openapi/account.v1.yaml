@@ -1,0 +1,35 @@
+openapi: 3.1.0
+info:
+  title: Glowfish Account API
+  version: 1.0.0
+paths:
+  /account/register/phone:
+    post:
+      operationId: registerPhone
+      responses:
+        "200": {description: Registered}
+  /account/login/password:
+    post:
+      operationId: loginPassword
+      responses:
+        "200": {description: Logged in}
+  /account/check:
+    post:
+      operationId: checkAccount
+      responses:
+        "200": {description: Account status}
+  /account/logout:
+    post:
+      operationId: logout
+      responses:
+        "200": {description: Logged out}
+  /account/sms/send:
+    post:
+      operationId: sendSms
+      responses:
+        "200": {description: SMS accepted}
+  /account/password/reset:
+    post:
+      operationId: resetPassword
+      responses:
+        "200": {description: Password reset}
