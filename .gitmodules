@@ -1,0 +1,3 @@
+[submodule "components/contracts"]
+	path = components/contracts
+	url = ../glowfish-contracts
