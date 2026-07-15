@@ -61,7 +61,10 @@ Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: 
 
 [Files]
 ; PyInstaller onedir 产物整目录打包
-Source: "dist\glowfish_reader\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
+#ifndef SourceDir
+  #define SourceDir "dist\glowfish_reader"
+#endif
+Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 ; （可选）WebView2 引导安装器，若放在脚本同级则随包；缺失时 [Code] 会跳过静默安装、仅提示
 ; Source: "MicrosoftEdgeWebview2Setup.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall; Check: WebView2Missing
 

@@ -25,7 +25,8 @@ param(
   [string]$RemoteDlDir = "/var/www/glowfish/dl",
   [string]$RemoteManifest = "/var/www/glowfish/update.json",
   [string]$DownloadBase = "https://license.glowfishreader.com/dl",
-  [string]$SshKey = ""
+  [string]$SshKey = "",
+  [string]$BuildRoot = ""
 )
 $ErrorActionPreference = "Stop"
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path     # proofread/
@@ -46,6 +47,11 @@ Write-Host "[release] product = $productName"
 $py = Join-Path $here "..\.venv\Scripts\python.exe"
 if (-not (Test-Path $py)) { throw "venv python not found: $py" }
 $hostRoot = (Resolve-Path (Join-Path $here "..\..")).Path
+if (-not $BuildRoot) { $BuildRoot = $env:GLOWFISH_BUILD_ROOT }
+if (-not $BuildRoot) { $BuildRoot = Join-Path ([IO.Path]::GetPathRoot($hostRoot)) "GlowfishBuild\release" }
+$workPath = Join-Path $BuildRoot "work"
+$distPath = Join-Path $BuildRoot "dist"
+if ((Join-Path $distPath "glowfish_reader\_internal\onnxruntime\tools\ort_format_model\ort_flatbuffers_py\fbs\RuntimeOptimizationRecordContainerEntry.py").Length -ge 248) { throw "BuildRoot is too long for Windows packaging: $BuildRoot" }
 $uiRoot = Join-Path $hostRoot "components\ui"
 $npm = (Get-Command npm.cmd -ErrorAction SilentlyContinue).Source
 if (-not $npm) { throw "npm.cmd not found; cannot build pinned UI component" }
@@ -68,7 +74,7 @@ if ($Build) {
   Write-Host "[release] building onedir via PyInstaller ..."
   Push-Location $here
   try {
-    & $py -m PyInstaller --clean --noconfirm "glowfish_reader.spec"
+    & $py -m PyInstaller --clean --noconfirm --workpath $workPath --distpath $distPath "glowfish_reader.spec"
     if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed ($LASTEXITCODE)" }
   } finally {
     Pop-Location
@@ -78,7 +84,7 @@ if ($Build) {
 # --- 4. frozen executable gates ---
 # History: punct / mlm / lexicon each shipped missing at least once. The app still ran,
 # the correction layers silently no-op'd, nobody noticed. A failed build is far cheaper.
-$distDir = Join-Path $here "dist\glowfish_reader"
+$distDir = Join-Path $distPath "glowfish_reader"
 $frozenExe = Join-Path $distDir $appExeName
 if (Test-Path $frozenExe) {
   # Windowed executables require Start-Process -Wait -PassThru to expose the exit code.
@@ -131,7 +137,7 @@ $ISCC = $isccCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
 if (-not $ISCC) { throw ("ISCC not found in any of: " + ($isccCandidates -join '; ') + " (install Inno Setup 6 or edit path)") }
 $iss = Join-Path $here "installer.iss"
 Write-Host "[release] compiling FULL installer ..."
-& $ISCC "/DAppVersion=$ver" "/DOutputBase=$setupBase" $iss
+& $ISCC "/DAppVersion=$ver" "/DOutputBase=$setupBase" "/DSourceDir=$distDir" $iss
 if ($LASTEXITCODE -ne 0) { throw "ISCC (full) failed ($LASTEXITCODE)" }
 
 # --- 4. versioned artifacts + hashes ---
