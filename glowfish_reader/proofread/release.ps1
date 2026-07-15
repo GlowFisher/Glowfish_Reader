@@ -45,6 +45,20 @@ Write-Host "[release] product = $productName"
 # --- 2. packaging dependency preflight (does not build) ---
 $py = Join-Path $here "..\.venv\Scripts\python.exe"
 if (-not (Test-Path $py)) { throw "venv python not found: $py" }
+$hostRoot = (Resolve-Path (Join-Path $here "..\..")).Path
+$uiRoot = Join-Path $hostRoot "components\ui"
+$npm = (Get-Command npm.cmd -ErrorAction SilentlyContinue).Source
+if (-not $npm) { throw "npm.cmd not found; cannot build pinned UI component" }
+Write-Host "[release] validating pinned component graph ..."
+& $py (Join-Path $hostRoot "scripts\validate_components.py")
+if ($LASTEXITCODE -ne 0) { throw "component manifest validation FAILED ($LASTEXITCODE)" }
+Push-Location $uiRoot
+try {
+  & $npm run build
+  if ($LASTEXITCODE -ne 0) { throw "UI deterministic build FAILED ($LASTEXITCODE)" }
+} finally { Pop-Location }
+& $py (Join-Path $hostRoot "scripts\verify_release_assets.py")
+if ($LASTEXITCODE -ne 0) { throw "component asset verification FAILED ($LASTEXITCODE)" }
 Write-Host "[release] running packaging preflight ..."
 & $py (Join-Path $here "packaging_preflight.py")
 if ($LASTEXITCODE -ne 0) { throw "packaging preflight FAILED ($LASTEXITCODE)" }

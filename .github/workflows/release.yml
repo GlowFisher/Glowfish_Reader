@@ -1,0 +1,16 @@
+name: release-candidate
+on: {workflow_dispatch: {}}
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: [self-hosted, windows, glowfish-release]
+    environment: production-signing
+    steps:
+      - uses: actions/checkout@v4
+        with: {submodules: recursive}
+      - run: python scripts/validate_components.py
+      - run: npm run build
+        working-directory: components/ui
+      - run: python scripts/verify_release_assets.py
+      - run: powershell -NoProfile -File glowfish_reader/proofread/release.ps1 -Build

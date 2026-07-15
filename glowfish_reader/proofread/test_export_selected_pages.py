@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parent
 
 
 def read_static(name):
-    return (ROOT / "static" / name).read_text(encoding="utf-8")
+    return (ROOT.parents[1] / "components" / "ui" / "dist" / name).read_text(encoding="utf-8")
 
 
 def _proof():

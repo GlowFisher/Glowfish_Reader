@@ -1,4 +1,4 @@
-﻿import base64
+import base64
 import importlib
 import sys
 import time
@@ -8,9 +8,7 @@ from fastapi.testclient import TestClient
 from nacl.signing import SigningKey
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-sys.path.append(str(Path(__file__).resolve().parents[1] / "license_server"))
-
-import sign
+from glowfish_account_server import sign
 
 
 def _client(monkeypatch, tmp_path):

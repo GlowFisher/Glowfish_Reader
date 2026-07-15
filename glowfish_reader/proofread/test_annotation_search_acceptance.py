@@ -67,7 +67,7 @@ def test_load_existing_never_calls_ocr_or_rewrites_stale_paths(tmp_path, monkeyp
 
 
 def test_frontend_has_save_flush_and_element_boundary_selection_support():
-    static = Path(__file__).parent / "static"
+    static = Path(__file__).resolve().parents[2] / "components" / "ui" / "dist"
     db = (static / "db.js").read_text(encoding="utf-8")
     search = (static / "search.js").read_text(encoding="utf-8")
     ann = (static / "annotations.js").read_text(encoding="utf-8")

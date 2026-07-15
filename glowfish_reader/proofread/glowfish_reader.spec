@@ -11,6 +11,7 @@
 · console=False（不弹黑窗）；OCR 子进程 stdout 在 desktop_app 内已兜底。
 """
 import os
+import json
 from PyInstaller.utils.hooks import collect_all, collect_submodules, collect_data_files, copy_metadata
 from packaging_preflight import BUNDLE_METADATA_DISTRIBUTIONS
 from _version import __version__
@@ -18,6 +19,10 @@ from _version import __version__
 HERE = os.path.abspath(os.getcwd())          # 在 proofread/ 下运行 pyinstaller
 ROOT = os.path.dirname(HERE)
 PIPELINE = os.path.join(ROOT, "pipeline")   # ../pipeline（build_docx 在此）
+HOST_ROOT = os.path.dirname(ROOT)
+UI_DIST = os.path.join(HOST_ROOT, "components", "ui", "dist")
+OCR_COMPONENT = os.path.join(HOST_ROOT, "components", "ocr")
+MODELS_DIR = os.environ.get("GLOWFISH_OCR_MODELS") or os.path.join(HERE, "models")
 PRODUCT_DISPLAY_NAME = f"Glowfish Reader V{__version__}"
 
 datas = []
@@ -48,30 +53,32 @@ def _require(path, what):
     return path
 
 # 前端静态资源（StaticFiles 从 <bundle>/static 取）
-datas += [(os.path.join(HERE, "static"), "static")]
+with open(_require(os.path.join(UI_DIST, "manifest.json"), "UI dist manifest"), encoding="utf-8") as _fh:
+    _ui_manifest = json.load(_fh)
+datas += [(os.path.join(UI_DIST, "manifest.json"), "ui_dist")]
+for _asset in _ui_manifest["files"]:
+    _rel = _asset["path"]
+    datas += [(_require(os.path.join(UI_DIST, _rel), "UI manifest asset"), os.path.join("ui_dist", os.path.dirname(_rel)))]
 
 # 构建期 SKU 标记（appconfig.get_mode 打包态据此锁定 single/multi，环境变量不可覆盖）
 datas += [(os.path.join(HERE, "sku.txt"), ".")]
+datas += [(os.path.join(HOST_ROOT, "component-manifest.json"), ".")]
 
 # PP-OCRv6 ONNX 轻量识别模型
-datas += [(os.path.join(HERE, "models", "ppocrv6_onnx"), os.path.join("models", "ppocrv6_onnx"))]
+with open(_require(os.path.join(OCR_COMPONENT, "models.lock.json"), "OCR models lock"), encoding="utf-8") as _fh:
+    _models_lock = json.load(_fh)
+for _model in _models_lock["files"]:
+    _rel = _model["path"]
+    datas += [(_require(os.path.join(MODELS_DIR, _rel), "locked OCR model"), os.path.join("models", os.path.dirname(_rel)))]
 
 # 冻结包真实 OCR 冒烟图：复用仓库基准 fixture，包内固定落到 assets/selftest/。
-_ocr_smoke = _require(os.path.join(ROOT, "bench", "fixtures", "vertical_cht_clean.png"), "OCR 自检图片")
+_ocr_smoke = _require(os.path.join(OCR_COMPONENT, "bench", "fixtures", "vertical_cht_clean.png"), "OCR 自检图片")
 datas += [(_ocr_smoke, os.path.join("assets", "selftest"))]
 
 # 本地古文标点模型：只带 int8 量化版（~99MB，F1 与 fp32 持平），fp32 388MB 不打。
-for _pf in ("model_int8.onnx", "vocab.txt", "meta.json"):
-    _pp = _require(os.path.join(HERE, "models", "punct", _pf), "古文断句模型")
-    datas += [(_pp, os.path.join("models", "punct"))]
-
-# GuwenBERT 语义纠错模型：同样只带 int8（~118MB，per-channel 量化）。
-for _mf in ("model_int8.onnx", "vocab.txt", "meta.json"):
-    _mp = _require(os.path.join(HERE, "models", "mlm", _mf), "语义纠错模型")
-    datas += [(_mp, os.path.join("models", "mlm"))]
 
 # 词表：域词修复 / 形近字 / 人名切分依赖，0.4MB，缺了纠错层会加载成空表静默 no-op。
-datas += [(_require(os.path.join(HERE, "assets", "lexicon"), "词表"), os.path.join("assets", "lexicon"))]
+datas += [(_require(os.path.join(OCR_COMPONENT, "src", "glowfish_ocr", "legacy", "assets", "lexicon"), "OCR lexicon"), os.path.join("assets", "lexicon"))]
 
 # 第三方需带数据/动态库/子模块的包（nacl 带 _sodium C 扩展，授权离线验签用）
 # shapely / pyclipper 是 PaddleX OCR pipeline 运行时依赖，collect_all 不会自动拉。

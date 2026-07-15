@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "host_version": "2.0.0-dev",
+  "contracts": {"version": "1.0.0", "commit": "d44d623ab893795b58a1e39ad1f003329940dd45"},
+  "ui": {"version": "1.0.0", "commit": "2cbf5ebb837350874fa211a9f2b01422906b678f"},
+  "ocr": {"version": "1.0.0", "commit": "25325d1b1a03ec606dea11e94552ad8d7a26eb1a"},
+  "account": {"version": "1.0.0", "commit": "41bb8ec60bb88a1fed51d6bbda5c18b2cc87a485"}
+}

@@ -1,8 +1,0 @@
-{
-  "_comment": "认证测试集清单（run_bench.py 读）。images/gold 为相对 bench/ 的目录。group_pages=true 时把同文档多页(<stem>_pN)预测按页拼成文档级 <stem> 再对 <stem>.gt.json 评分。",
-  "paddle_py": "C:\\Users\\18267\\miniconda3\\envs\\paddleocr\\python.exe",
-  "sets": [
-    {"name": "手写", "images": "_hw_images", "gold": "gold_handwritten", "group_pages": true},
-    {"name": "印刷", "images": "gold_printed", "gold": "gold_printed", "group_pages": false}
-  ]
-}
