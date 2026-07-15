@@ -21,6 +21,6 @@ jobs:
       - run: python -m pip install -e components/contracts -e components/ocr -e components/account -e . pytest
       - run: python scripts/validate_components.py
       - run: python scripts/check_architecture.py
-      - run: python -m pytest tests -q --basetemp .pytest_host
-      - run: python -m pytest proofread -q --basetemp ../.pytest_legacy
+      - run: python -m pytest tests -q --basetemp p
+      - run: python -m pytest proofread -q --basetemp ../p
         working-directory: glowfish_reader
