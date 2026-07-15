@@ -23,4 +23,5 @@ foreach ($name in $names) {
 $hashes | Set-Content -LiteralPath (Join-Path $destinationPath "SHA256SUMS.txt") -Encoding ASCII
 Copy-Item -LiteralPath (Join-Path $hostRepo "component-manifest.json") -Destination $destinationPath -Force
 Copy-Item -LiteralPath (Join-Path $hostRepo "docs\OFFLINE_HANDOFF.md") -Destination (Join-Path $destinationPath "RESTORE.md") -Force
+Copy-Item -LiteralPath (Join-Path $hostRepo "scripts\restore_offline_handoff.ps1") -Destination $destinationPath -Force
 Write-Host "Verified offline handoff created at $destinationPath"

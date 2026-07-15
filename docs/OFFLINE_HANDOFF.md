@@ -12,18 +12,10 @@ bundles and can be hosted in any of these ways:
 
 ## Restore bundles
 
-Place all bundles in one directory and run:
+Place all bundles in one directory and run the included credential-free restore script:
 
 ```powershell
-git clone .\glowfish-contracts.bundle glowfish-contracts
-git clone .\glowfish-reader-ui.bundle glowfish-reader-ui
-git clone .\glowfish-ocr.bundle glowfish-ocr
-git clone .\glowfish-account.bundle glowfish-account
-git clone .\glowfish-reader-host.bundle glowfish-reader-host
-Set-Location .\glowfish-reader-host
-git switch integration/2.0
-git -c protocol.file.allow=always submodule update --init --recursive
-python scripts\validate_components.py
+.\restore_offline_handoff.ps1 -BundleDirectory . -Destination ..\glowfish-restored
 ```
 
 Verify `SHA256SUMS.txt` before cloning. Keep the bundle set immutable; create a new
