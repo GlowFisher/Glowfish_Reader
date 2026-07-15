@@ -4,10 +4,14 @@ import io
 import json
 import hashlib
 import atexit
+import logging
+import os
+import uuid
 import shutil
 import secrets
 import threading
 import subprocess
+import anyio
 from pathlib import Path
 
 from fastapi import APIRouter, Request, HTTPException, Depends
@@ -18,6 +22,9 @@ import ingest
 import engines
 import safefs
 import recognize_ppocrv6
+import ocr_job_manager
+import windows_process
+import ocr_atomic
 import recognize_ppocrv6_onnx
 import ocr_rescue
 import ocr_quality
@@ -27,7 +34,10 @@ from userctx import Ctx, ctx_dep
 
 router = APIRouter()
 
+_WORKER_CIRCUIT_OPEN = False
+_LOG = logging.getLogger("glowfish.ocr")
 # comment
+_WORKER_IDLE_TIMER = None
 # comment
 _WORKER = None
 _WORKER_LOCK = threading.Lock()
@@ -47,13 +57,18 @@ _ONNX_ENGINES = {engines.ONNX_HIGH_ENGINE, engines.LIGHTWEIGHT_ENGINE}
 
 def _worker_for(eng, prefix, params):
     """Internal helper."""
-    global _WORKER
+    global _WORKER, _WORKER_CIRCUIT_OPEN, _WORKER_IDLE_TIMER
     if eng not in _RESIDENT_ENGINES:
+        return None
+    if _WORKER_CIRCUIT_OPEN:
         return None
     params = dict(params or {})
     model_type = params.get("model_type", eng)
     config_key = json.dumps(params, ensure_ascii=False, sort_keys=True)
     with _WORKER_LOCK:
+        if _WORKER_IDLE_TIMER is not None:
+            _WORKER_IDLE_TIMER.cancel()
+            _WORKER_IDLE_TIMER = None
         if (_WORKER is not None and _WORKER.alive()
                 and getattr(_WORKER, "eng", None) == eng
                 and _WORKER.model_type == model_type
@@ -62,17 +77,24 @@ def _worker_for(eng, prefix, params):
         if _WORKER is not None:                  # 瀵洘鎼?濡€崇€峰锝呭綁娴滃棙鍨ㄥ鍙夘劥 閳?閺€鑸靛竴闁插秷鎹?
             _WORKER.close()
             _WORKER = None
-        try:
-            worker_cls = (recognize_ppocrv6_onnx.OcrWorker if eng in _ONNX_ENGINES
-                          else recognize_ppocrv6.OcrWorker)
-            w = worker_cls(prefix, env=_clean_env(), model_type=model_type, config=params)
-            w.eng = eng
-            w.config_key = config_key
-            w.start()
-        except Exception:
-            return None
-        _WORKER = w
-        return _WORKER
+        worker_cls = (recognize_ppocrv6_onnx.OcrWorker if eng in _ONNX_ENGINES
+                      else recognize_ppocrv6.OcrWorker)
+        for attempt in range(2):
+            w = None
+            try:
+                w = worker_cls(prefix, env=_clean_env(), model_type=model_type, config=params)
+                w.eng = eng
+                w.config_key = config_key
+                w.start()
+                _WORKER = w
+                _LOG.info("Worker ready engine=%s pid=%s attempt=%s", eng, getattr(w, "pid", None), attempt + 1)
+                return _WORKER
+            except Exception:
+                _LOG.exception("Worker startup failed engine=%s attempt=%s", eng, attempt + 1)
+                if w is not None:
+                    w.close()
+        _WORKER_CIRCUIT_OPEN = True
+        return None
 
 
 def prewarm(engine: str = None):
@@ -84,35 +106,81 @@ def prewarm(engine: str = None):
     return _worker_for(eng2, prefix, params) is not None
 
 
+def _schedule_worker_idle_close(worker):
+    global _WORKER, _WORKER_IDLE_TIMER
+    try:
+        ttl = float(os.environ.get("SHUPAI_OCR_IDLE_TTL", "180"))
+    except ValueError:
+        ttl = 180.0
+    if ttl <= 0:
+        return
+
+    def close_if_idle():
+        global _WORKER, _WORKER_IDLE_TIMER
+        with _WORKER_LOCK:
+            if _WORKER is worker:
+                worker.close()
+                _WORKER = None
+                _LOG.info("OCR worker released after %.1fs idle", ttl)
+            _WORKER_IDLE_TIMER = None
+
+    _WORKER_IDLE_TIMER = threading.Timer(ttl, close_if_idle)
+    _WORKER_IDLE_TIMER.daemon = True
+    _WORKER_IDLE_TIMER.start()
+
+
 @atexit.register
 def _close_worker():
-    global _WORKER
+    global _WORKER, _WORKER_IDLE_TIMER
     if _WORKER is not None:
         try:
             _WORKER.close()
         except Exception:
             pass
         _WORKER = None
+    if _WORKER_IDLE_TIMER is not None:
+        _WORKER_IDLE_TIMER.cancel()
+        _WORKER_IDLE_TIMER = None
 
 
-def _run_engine(ctx: Ctx, image_dir: Path, recog_path: Path, engine: str):
+def shutdown_ocr():
+    """Stop accepting OCR and remove every registered child process."""
+    ocr_job_manager.JOB_MANAGER.cancel_all()
+    _close_worker()
+    windows_process.shutdown_all()
+
+
+def _run_engine(ctx: Ctx, image_dir: Path, recog_path: Path, engine: str, job=None):
     eng2, prefix, params = engines.resolve_engine(engine)
     _CUR_ENGINE["name"] = eng2
+    progress_path = job.progress_path if job is not None else ctx.progress_path
+    job_id = job.job_id if job is not None else None
+    if job is not None:
+        job.check_cancelled()
     w = _worker_for(eng2, prefix, params)
     if w is not None:
         try:
-            w.submit(image_dir, recog_path, ctx.progress_path, params)
+            try:
+                w.submit(image_dir, recog_path, progress_path, params, job_id=job_id)
+            except TypeError:
+                # Legacy Paddle worker does not yet expose the job_id keyword.
+                w.submit(image_dir, recog_path, progress_path, params)
             if recog_path.exists():
                 _stamp_recog_meta(recog_path, eng2)
+                _schedule_worker_idle_close(w)
                 return
         except Exception:
-            pass
+            _LOG.exception("Resident worker failed engine=%s job_id=%s", eng2, job_id)
+    if job is not None:
+        job.check_cancelled()
     cmd = prefix + ["--images", str(image_dir), "--out", str(recog_path),
-                    "--progress", str(ctx.progress_path)]
+                    "--progress", str(progress_path)]
     if params:
         cmd += ["--config", json.dumps(params, ensure_ascii=False)]
-    r = subprocess.run(cmd, env=_clean_env(), capture_output=True, text=True,
-                       encoding="utf-8", errors="replace")
+    _LOG.warning("One-shot fallback started engine=%s job_id=%s", eng2, job_id)
+    r = windows_process.run(cmd, purpose="fallback", job_id=job_id, env=_clean_env(),
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                            encoding="utf-8", errors="replace")
     if r.returncode != 0 or not recog_path.exists():
         raise RuntimeError(f"Recognition failed (engine {eng2}):\n{r.stdout}\n{r.stderr}")
 
@@ -240,7 +308,7 @@ def _finish_progress(ctx: Ctx):
     ctx.write_progress(payload)
 
 
-def _ensure_recog(ctx: Ctx, image_dir: Path, recog_path: Path, engine: str = None):
+def _ensure_recog_direct(ctx: Ctx, image_dir: Path, recog_path: Path, engine: str = None, job=None):
     """Internal helper."""
     eng = engines.engine_name(engine)
     if _recog_cache_valid(recog_path, eng):
@@ -261,7 +329,15 @@ def _ensure_recog(ctx: Ctx, image_dir: Path, recog_path: Path, engine: str = Non
     first_error = None
     for idx, candidate in enumerate(chain):
         try:
-            _run_engine(ctx, image_dir, recog_path, candidate)
+            if job is None:
+                _run_engine(ctx, image_dir, recog_path, candidate)
+            else:
+                try:
+                    _run_engine(ctx, image_dir, recog_path, candidate, job=job)
+                except TypeError as exc:
+                    if "unexpected keyword argument 'job'" not in str(exc):
+                        raise
+                    _run_engine(ctx, image_dir, recog_path, candidate)
             if recog_path.exists():
                 _stamp_recog_meta(recog_path, candidate)
             actual = _maybe_low_recall_lightweight_fallback(ctx, image_dir, recog_path, candidate)
@@ -286,6 +362,20 @@ def _ensure_recog(ctx: Ctx, image_dir: Path, recog_path: Path, engine: str = Non
     if eng == engines.LIGHTWEIGHT_ENGINE:
         raise HTTPException(500, f"Recognition failed (engine {eng}): {first_error}")
     raise HTTPException(500, f"Recognition failed (engine {eng}; fallback failed): {first_error}")
+
+def _ensure_recog(ctx: Ctx, image_dir: Path, recog_path: Path, engine: str = None,
+                  request_id: str = None):
+    eng = engines.engine_name(engine)
+    if ocr_job_manager.JOB_MANAGER.is_stopping() or windows_process.is_stopping():
+        raise HTTPException(503, "application_stopping")
+    if _recog_cache_valid(recog_path, eng):
+        return eng
+    return ocr_atomic.run_atomic(
+        ocr_job_manager.JOB_MANAGER, ctx=ctx, image_dir=image_dir,
+        output_path=recog_path, engine=eng, config_hash=_engine_config_hash(eng),
+        request_id=request_id, direct_runner=_ensure_recog_direct,
+        expected_pages=_count_ocr_images(image_dir))
+
 
 def _ensure_region_recog(ctx: Ctx, image_dir: Path, recog_path: Path, engine: str = None):
     eng = engines.engine_name(engine)
@@ -424,7 +514,7 @@ def _resolve_page_image(page, reg, proof_path, repair=False):
     return None
 
 
-def _repair_proof_image_refs(proof, reg, proof_path):
+def _repair_proof_image_refs(proof, reg, proof_path, persist=True):
     changed = False
     image_dir = Path(reg.get("image_dir") or Path(proof_path).parent / "_src")
     if proof.get("image_dir") != str(image_dir):
@@ -434,17 +524,17 @@ def _repair_proof_image_refs(proof, reg, proof_path):
         before = page.get("image")
         if _resolve_page_image(page, reg, proof_path, repair=True) and page.get("image") != before:
             changed = True
-    if changed:
+    if changed and persist:
         M.save_proof(proof, proof_path)
     return changed
-def _load_proof(ctx: Ctx, batch, image_dir, source_label, engine=None):
+def _load_proof(ctx: Ctx, batch, image_dir, source_label, engine=None, request_id=None):
     """Internal helper."""
     bdir = ctx.work / batch
     recog_path = bdir / "_recog.json"
     proof_path = bdir / "proof.json"
     eng = engines.engine_name(engine)
     _begin_ocr_progress(ctx, Path(image_dir), eng)
-    actual_eng = _ensure_recog(ctx, Path(image_dir), recog_path, eng)
+    actual_eng = _ensure_recog(ctx, Path(image_dir), recog_path, eng, request_id=request_id)
     proof = M.load_or_build(proof_path, recog_path, batch, engine=actual_eng)
     proof["image_dir"] = str(image_dir)
     proof["source"] = source_label
@@ -551,6 +641,9 @@ def thumb(token: str, rel: str, page: int = 0, ctx: Ctx = Depends(ctx_dep)):
 
 @router.get("/api/import_progress")
 def import_progress(ctx: Ctx = Depends(ctx_dep)):
+    active = ocr_job_manager.JOB_MANAGER.status(ctx.uid, active_only=True)
+    if active:
+        return active
     p = ctx.read_progress()
     if isinstance(p, dict) and _CUR_ENGINE["name"]:
         p.setdefault("engine", _CUR_ENGINE["name"])   # 閸撳秶顏弰鍓с仛瑜版挸澧犲鏇熸惛閿涘牓鐝划缍盠/韫囶偊鈧噦绱?
@@ -627,8 +720,9 @@ async def open_sources(req: Request, ctx: Ctx = Depends(ctx_dep)):
     if not files:
         raise HTTPException(400, "No supported image or PDF files found")
     st = load_settings(ctx)
-    proof = _load_proof(ctx, batch, src_dir, label,
+    proof = await anyio.to_thread.run_sync(lambda: _load_proof(ctx, batch, src_dir, label, request_id=body.get("request_id"),
                         engine=st.get("engine_pref") or None)   # 閻劍鍩涘鏇熸惛閸嬪繐銈介敍鍫⑩敄=姒涙顓绘妯肩翱閿?
+    )
     _pb = _resolve_punct_backend(body, st)       # 閼奉亜濮╅弬顓炲綖閿涙ocal 閺堫剙婀存妯款吇瀵偓 / off 閸?
     if _pb != "off":
         _ai_punctuate(proof, _pb)
@@ -641,13 +735,56 @@ async def open_sources(req: Request, ctx: Ctx = Depends(ctx_dep)):
 
 @router.get("/api/load")
 def load_existing(batch: str, ctx: Ctx = Depends(ctx_dep)):
-    """Internal helper."""
+    """Pure read: load proof.json without triggering OCR or modifying any file.
+
+    OCR engine switching only affects new imports. To re-recognize an existing
+    document, use the explicit /api/reocr_batch endpoint.
+    """
     reg = ctx.reg(safefs.safe_batch(batch))
     if not reg:
         raise HTTPException(404, "Document not found")
     proof_path = Path(reg["proof_path"])
-    proof = json.loads(proof_path.read_text(encoding="utf-8"))
+    if not proof_path.exists():
+        raise HTTPException(404, "Proof file not found")
+    try:
+        proof = json.loads(proof_path.read_text(encoding="utf-8"))
+    except Exception:
+        raise HTTPException(500, "Proof file corrupted, cannot load")
+    # Normalize paths in the response only. Opening/search-result navigation is
+    # a read operation and must not rewrite a proof merely because paths moved.
+    _repair_proof_image_refs(proof, reg, proof_path, persist=False)
+    return JSONResponse({"proof": proof, "low_conf": M.LOW_CONF,
+                         "source": proof.get("source", batch)})
+
+@router.post("/api/reocr_batch")
+async def reocr_batch(req: Request, ctx: Ctx = Depends(ctx_dep)):
+    """Explicit re-recognition: re-run OCR on an existing batch.
+
+    This may overwrite manual proofreading changes. The caller must confirm intent.
+    Not triggered automatically by search or /api/load.
+    """
+    body = await req.json()
+    batch = safefs.safe_batch(body.get("batch", ""))
+    reg = ctx.reg(batch)
+    if not reg:
+        raise HTTPException(404, "Document not found")
+    proof_path = Path(reg["proof_path"])
+    bdir = proof_path.parent
+    recog_path = bdir / "_recog.json"
+    image_dir = Path(reg.get("image_dir") or bdir / "_src")
+    st = load_settings(ctx)
+    eng = engines.engine_name(st.get("engine_pref") or None)
+    _begin_ocr_progress(ctx, image_dir, eng)
+    actual = await anyio.to_thread.run_sync(lambda: _ensure_recog(
+        ctx, image_dir, recog_path, eng,
+        request_id=body.get("request_id")))
+    proof = M.load_or_build(proof_path, recog_path, batch, engine=actual)
+    proof["image_dir"] = str(image_dir)
+    proof["engine"] = actual
+    proof["source"] = proof.get("source", batch)
     _repair_proof_image_refs(proof, reg, proof_path)
+    M.save_proof(proof, proof_path)
+    _finish_progress(ctx)
     return JSONResponse({"proof": proof, "low_conf": M.LOW_CONF,
                          "source": proof.get("source", batch)})
 

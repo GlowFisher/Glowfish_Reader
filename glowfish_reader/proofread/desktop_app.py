@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-"""GlowFish 史料阅读器 —— 本地桌面 App 入口（pywebview 原生窗 + 内嵌 FastAPI）。
+"""Glowfish Reader 史料阅读器 —— 本地桌面 App 入口（pywebview 原生窗 + 内嵌 FastAPI）。
 
-· 单机模式：无登录、数据落 %APPDATA%\\GlowFish史料阅读器\\、默认引擎由 appconfig/engines 决定。
+· 单机模式：无登录、数据落 %APPDATA%\\Glowfish Reader 史料阅读器\\、默认引擎由 appconfig/engines 决定。
 · 随机空闲端口起 uvicorn（仅 127.0.0.1 回环），pywebview 用系统 WebView2 加载，关窗即退。
 · 打包态（PyInstaller）下本 exe 兼作识别子进程：`exe --ocr <engine> --images ...`
   经下方分发器跳到识别脚本 main()，规避 sys.executable 非 python 解释器、当脚本跑会重启 GUI 的坑。
@@ -34,8 +34,18 @@ def _harden_std():
 _harden_std()
 
 
+def _configure_runtime_logging(mode):
+    """尽早接入持久日志；日志目录异常不得反过来阻断应用启动。"""
+    try:
+        import runtime_logging
+        return runtime_logging.configure_runtime_logging(mode)
+    except Exception:
+        return None
+
+
 def _run_ocr_child():
     """打包态识别子进程分发：sys.argv = [exe, '--ocr', <engine>, <recognize 参数...>]。"""
+    _configure_runtime_logging("ocr")
     engine = sys.argv[2] if len(sys.argv) > 2 else "ppocrv6_onnx"
     sys.argv = [sys.argv[0]] + sys.argv[3:]      # 还原成 recognize_xxx.py 期望的 argv
     if engine == "paddle":
@@ -111,7 +121,8 @@ def _prewarm_async():
             import content_api
             content_api.prewarm()
         except Exception:
-            pass
+            import logging
+            logging.getLogger("glowfish.prewarm").exception("OCR prewarm failed")
     threading.Thread(target=_go, daemon=True).start()
 
 
@@ -151,8 +162,143 @@ def _selftest():
             pass
 
 
+def _selftest_ocr_deps():
+    """使用 PaddleX 自身逻辑验证冻结包里的 OCR 依赖元数据。"""
+    try:
+        from paddlex.utils import deps
+        required = tuple(deps.EXTRAS.get("ocr-core", ()))
+        missing = [name for name in required if not deps.is_dep_available(name)]
+        if missing:
+            print("SELFTEST OCR DEPS FAIL: " + ", ".join(missing))
+            return 1
+        if not required:
+            print("SELFTEST OCR DEPS FAIL: PaddleX declares no ocr-core dependencies")
+            return 1
+        print("SELFTEST OCR DEPS OK: " + ", ".join(required))
+        return 0
+    except Exception as exc:
+        print(f"SELFTEST OCR DEPS FAIL: {exc!r}")
+        return 1
+
+
+def _selftest_ocr():
+    """构建两个出厂 OCR 档位，并对固定图片执行一次离线识别。"""
+    import json
+    import tempfile
+    import recognize_ppocrv6_onnx as ocr
+
+    candidates = (
+        HERE / "assets" / "selftest" / "vertical_cht_clean.png",
+        HERE.parent / "bench" / "fixtures" / "vertical_cht_clean.png",
+    )
+    fixture = next((path for path in candidates if path.is_file()), None)
+    if fixture is None:
+        print("SELFTEST OCR FAIL: fixture missing")
+        return 1
+
+    presets = (
+        {"text_det_limit_side_len": 960, "text_det_limit_type": "max"},
+        {"profile": "high_accuracy"},
+    )
+    try:
+        with tempfile.TemporaryDirectory(prefix="glowfish_ocr_selftest_") as tmp:
+            for index, config in enumerate(presets):
+                out = Path(tmp) / f"result_{index}.json"
+                engine = ocr._build_engine(dict(config))
+                pages, failed = ocr.run_job(
+                    engine, fixture.parent, out, log=lambda *_args: None, config=config,
+                )
+                result = json.loads(out.read_text(encoding="utf-8"))
+                lines = sum(len(page.get("lines") or ()) for page in result.values())
+                if pages != 1 or failed != 0 or lines < 1:
+                    raise RuntimeError(
+                        f"preset {index} invalid result: pages={pages} failed={failed} lines={lines}"
+                    )
+        print("SELFTEST OCR OK")
+        return 0
+    except Exception as exc:
+        print(f"SELFTEST OCR FAIL: {exc!r}")
+        return 1
+
+
+def _selftest_release_fixes():
+    """冻结版发布闸：验证附带原图导出与持久运行日志确实进入当前构建。"""
+    import io
+    import json
+    import logging
+    import tempfile
+    import zipfile
+    from docx import Document
+    from PIL import Image
+
+    old_data_dir = os.environ.get("SHUPAI_DATA_DIR")
+    try:
+        with tempfile.TemporaryDirectory(prefix="glowfish_release_fixes_") as tmp:
+            root = Path(tmp).resolve()
+            os.environ["SHUPAI_DATA_DIR"] = str(root)
+
+            import appconfig
+            appconfig.WORK = root
+            appconfig.CONFIG_PATH = root / "app_config.json"
+
+            log_path = _configure_runtime_logging("release-selftest")
+            logging.getLogger("glowfish.release").error("运行日志发布自检")
+            for handler in logging.getLogger().handlers:
+                handler.flush()
+            if not log_path or "运行日志发布自检" not in Path(log_path).read_text(encoding="utf-8"):
+                raise RuntimeError("runtime log marker missing")
+
+            import safefs
+            safefs.WORK_ROOT = root
+            batch, page_id = "release-fixture", "page1"
+            src = root / batch / "_src"
+            src.mkdir(parents=True)
+            Image.new("RGB", (24, 24), "white").save(src / f"{page_id}.png")
+            proof = {
+                "batch": batch,
+                "image_dir": str(src),
+                "pages": [{
+                    "page_id": page_id,
+                    "image": f"_img/{page_id}.jpg",
+                    "lines": [{"id": "l1", "text": "发布自检", "deleted": False, "para_break": True}],
+                    "order": ["l1"],
+                }],
+            }
+            proof_path = root / batch / "proof.json"
+            proof_path.write_text(json.dumps(proof, ensure_ascii=False), encoding="utf-8")
+
+            class _Ctx:
+                def reg(self, name):
+                    return {"proof_path": str(proof_path)} if name == batch else None
+
+            from export_api import _export_selected
+            body = {"selected": [{"batch": batch, "page_ids": [page_id]}]}
+            docx_response = _export_selected(_Ctx(), body, "docx", True)
+            if len(Document(io.BytesIO(docx_response.body)).inline_shapes) != 1:
+                raise RuntimeError("DOCX source image missing")
+            md_response = _export_selected(_Ctx(), body, "md", True)
+            with zipfile.ZipFile(io.BytesIO(md_response.body)) as archive:
+                if not any(name.endswith("_原图/0001_page1.png") for name in archive.namelist()):
+                    raise RuntimeError("ZIP source image missing")
+
+            for handler in list(logging.getLogger().handlers):
+                handler.flush()
+                handler.close()
+                logging.getLogger().removeHandler(handler)
+        print("SELFTEST RELEASE FIXES OK")
+        return 0
+    except Exception as exc:
+        print(f"SELFTEST RELEASE FIXES FAIL: {exc!r}")
+        return 1
+    finally:
+        if old_data_dir is None:
+            os.environ.pop("SHUPAI_DATA_DIR", None)
+        else:
+            os.environ["SHUPAI_DATA_DIR"] = old_data_dir
+
 def run():
     """起内嵌服务 + pywebview 原生窗口（阻塞至关窗）。"""
+    _configure_runtime_logging("desktop")
     server, host, port = _start_server()
     _prewarm_async()                             # 开机即热模型，与等服务/选文件重叠 → 首页识别即时
     import webview
@@ -195,7 +341,7 @@ def run():
             except Exception:
                 return False
 
-    win = webview.create_window("Glowfish_Reader 史料阅读器", f"http://{host}:{port}/",
+    win = webview.create_window("Glowfish Reader V1.0.0", f"http://{host}:{port}/",
                                 width=1280, height=860, min_size=(960, 640), js_api=_Api())
 
     def _shutdown_for_update():
@@ -218,6 +364,11 @@ def run():
     # 公告"已弹过一次"等前端本地状态形同虚设。落到持久数据目录下才能跨次启动保留。
     webview.start(private_mode=False, storage_path=str(webview_storage))
     try:
+        try:
+            import content_api
+            content_api.shutdown_ocr()
+        except Exception:
+            pass
         server.should_exit = True               # 关窗后优雅停服
     except Exception:
         pass
@@ -225,6 +376,7 @@ def run():
 
 def _serve_headless():
     """无界面前台起服务（调试 / 打包 E2E 验证 / 内网共享）：exe --serve [port] [host]。"""
+    _configure_runtime_logging("server")
     os.environ.setdefault("SHUPAI_MODE", "single")
     os.environ["SHUPAI_OPEN_BROWSER"] = "0"
     import uvicorn
@@ -257,12 +409,20 @@ if __name__ == "__main__":
     if arg1 == "--selftest-capabilities":
         import capabilities
         sys.exit(capabilities.selftest())
+    if arg1 == "--selftest-ocr-deps":
+        sys.exit(_selftest_ocr_deps())
+    if arg1 == "--selftest-ocr":
+        sys.exit(_selftest_ocr())
+    if arg1 == "--selftest-release-fixes":
+        sys.exit(_selftest_release_fixes())
     if arg1 == "--serve":
         _serve_headless()
         sys.exit(0)
     try:
         run()
     except Exception as e:                       # 启动崩溃：留痕 + 尽力弹原生错误框
+        import logging
+        logging.getLogger("glowfish.crash").exception("Desktop startup failed")
         _log_crash(e)
         try:
             import webview

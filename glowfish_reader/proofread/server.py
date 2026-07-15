@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""GlowFish·史料阅读器 多用户网页版 —— 应用装配 + 跨平台启动入口。
+"""Glowfish Reader 史料阅读器 多用户网页版 —— 应用装配 + 跨平台启动入口。
 
 单机/内网多用户：注册/登录后各自隔离的史料工作区（_work/users/<uid>/，互不可见）。
 后端按职责拆分：auth_api(认证) / content_api(上传·导入·识别·编辑·出图) /
@@ -37,7 +37,12 @@ import notice_api
 # 数据根目录由 appconfig 决定（开发态 _work/，打包态 %APPDATA%）；单机用户落 users/local/。
 (appconfig.data_root() / "users").mkdir(parents=True, exist_ok=True)
 
-app = FastAPI(title="Glowfish_Reader 史料阅读器")
+app = FastAPI(title="Glowfish Reader 史料阅读器")
+
+
+@app.on_event("shutdown")
+def shutdown_ocr_processes():
+    content_api.shutdown_ocr()
 
 
 @app.get("/health")

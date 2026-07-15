@@ -81,7 +81,7 @@ def test_resolve_onnx_high_uses_high_accuracy_profile():
     assert name == "ppocrv6_onnx_high"
     assert prefix[1].endswith("recognize_ppocrv6_onnx.py")
     assert params["ocr_version"] == "PP-OCRv6"
-    assert "column_rescue" not in params        # 列救援已裁撤（消融 Δ F1 = 0.000）
+    assert params["column_rescue"] is True      # high-accuracy preset enables column rescue
     assert params["profile"] == "high_accuracy"
     assert params["text_det_box_thresh"] == 0.45
 

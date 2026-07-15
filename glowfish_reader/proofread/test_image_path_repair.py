@@ -94,7 +94,7 @@ def test_load_proof_stores_relative_image_paths_for_new_imports(monkeypatch, tmp
     image_dir = tmp_path / batch / "_src"
     image_dir.mkdir(parents=True)
 
-    def fake_ensure_recog(ctx, _image_dir, recog_path, engine):
+    def fake_ensure_recog(ctx, _image_dir, recog_path, engine, request_id=None):
         recog_path.write_text(json.dumps({
             "0001_page": {
                 "image": str(image_dir / "0001_page.png"),

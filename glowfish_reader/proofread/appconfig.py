@@ -10,7 +10,7 @@
 
 数据根目录（data_root）—— 所有用户数据/配置只落这里，绝不触碰其它目录：
   · 开发态（源码直跑）   = proofread/_work/        （沿用旧路径，不打扰在研数据）
-  · 打包态（PyInstaller）= %APPDATA%\\GlowFish史料阅读器\\   （安装版不写程序目录）
+  · 打包态（PyInstaller）= %APPDATA%\\Glowfish Reader 史料阅读器\\   （安装版不写程序目录）
   · SHUPAI_DATA_DIR 显式覆盖最高优先。
 
 运行模式（mode）：
@@ -25,7 +25,7 @@ import subprocess
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-APP_NAME = "GlowFish史料阅读器"
+APP_NAME = "Glowfish Reader 史料阅读器"
 
 _BOOL_TRUE = {"1", "true", "yes", "on", "y"}
 
@@ -53,7 +53,12 @@ def _resolve_data_root():
         return Path(ev)
     if is_frozen():
         base = os.environ.get("APPDATA") or str(Path.home())
-        return Path(base) / APP_NAME
+        new_path = Path(base) / APP_NAME
+        # 迁移旧路径：v1 的数据落在「GlowFish史料阅读器」
+        old_path = Path(base) / "GlowFish史料阅读器"
+        if old_path.exists() and not new_path.exists():
+            return old_path
+        return new_path
     return HERE / "_work"
 
 

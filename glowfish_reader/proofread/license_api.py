@@ -18,7 +18,7 @@ def _raise(reason):
 #   2) 断网宽限 OFFLINE_GRACE：距上次成功核对（签名内 checked_at，改本机文件无效）超 14 天须联网；
 #   3) 签名内 expires_at 已过 → 断网也不放行（否则「到期」对长期离线用户就是幌子）。
 OFFLINE_GRACE = 14 * 86400
-_PROBE_INTERVAL = 3600
+_PROBE_INTERVAL = 300     # 每 5 分钟静默联网核对一次（封禁即时生效）
 _NET_RETRY = 60           # 网络失败不烧整个节流窗：最多 60 秒后即可重试
 _last_probe_ts = 0.0
 _login_counted = False    # 本进程是否已被服务端计过一次登录（手动登录或首个探测）

@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""PyInstaller 打包配置 —— GlowFish 史料阅读器（本地桌面 App，onedir）。
+"""PyInstaller 打包配置 —— Glowfish Reader 史料阅读器（本地桌面 App，onedir）。
 
 构建（在 proofread/ 目录下，用 venv 的 pyinstaller）：
   ..\\.venv\\Scripts\\pyinstaller.exe glowfish_reader.spec --noconfirm
@@ -11,11 +11,14 @@
 · console=False（不弹黑窗）；OCR 子进程 stdout 在 desktop_app 内已兜底。
 """
 import os
-from PyInstaller.utils.hooks import collect_all, collect_submodules, collect_data_files
+from PyInstaller.utils.hooks import collect_all, collect_submodules, collect_data_files, copy_metadata
+from packaging_preflight import BUNDLE_METADATA_DISTRIBUTIONS
+from _version import __version__
 
 HERE = os.path.abspath(os.getcwd())          # 在 proofread/ 下运行 pyinstaller
 ROOT = os.path.dirname(HERE)
 PIPELINE = os.path.join(ROOT, "pipeline")   # ../pipeline（build_docx 在此）
+PRODUCT_DISPLAY_NAME = f"Glowfish Reader V{__version__}"
 
 datas = []
 binaries = []
@@ -23,7 +26,7 @@ hiddenimports = []
 
 # 本地业务模块（部分在函数内条件 import / 经 sys.path 插入后导入，静态分析会漏，显式声明）
 hiddenimports += [
-    "server", "appconfig", "auth", "auth_api", "content_api", "export_api",
+    "server", "appconfig", "runtime_logging", "auth", "auth_api", "content_api", "export_api",
     "library_api", "userctx", "safefs", "settings_store", "engines", "ingest",
     "proof_model", "t2s_fixes", "punctuate_local", "recognize", "recognize_ppocrv6",
     "recognize_ppocrv6_onnx", "build_docx",
@@ -53,6 +56,10 @@ datas += [(os.path.join(HERE, "sku.txt"), ".")]
 # PP-OCRv6 ONNX 轻量识别模型
 datas += [(os.path.join(HERE, "models", "ppocrv6_onnx"), os.path.join("models", "ppocrv6_onnx"))]
 
+# 冻结包真实 OCR 冒烟图：复用仓库基准 fixture，包内固定落到 assets/selftest/。
+_ocr_smoke = _require(os.path.join(ROOT, "bench", "fixtures", "vertical_cht_clean.png"), "OCR 自检图片")
+datas += [(_ocr_smoke, os.path.join("assets", "selftest"))]
+
 # 本地古文标点模型：只带 int8 量化版（~99MB，F1 与 fp32 持平），fp32 388MB 不打。
 for _pf in ("model_int8.onnx", "vocab.txt", "meta.json"):
     _pp = _require(os.path.join(HERE, "models", "punct", _pf), "古文断句模型")
@@ -67,7 +74,9 @@ for _mf in ("model_int8.onnx", "vocab.txt", "meta.json"):
 datas += [(_require(os.path.join(HERE, "assets", "lexicon"), "词表"), os.path.join("assets", "lexicon"))]
 
 # 第三方需带数据/动态库/子模块的包（nacl 带 _sodium C 扩展，授权离线验签用）
-for pkg in ("paddleocr", "paddlex", "opencc", "onnxruntime", "nacl"):
+# shapely / pyclipper 是 PaddleX OCR pipeline 运行时依赖，collect_all 不会自动拉。
+for pkg in ("paddleocr", "paddlex", "opencc", "onnxruntime", "nacl",
+            "shapely", "pyclipper"):
     d, b, h = collect_all(pkg)
     datas += d
     binaries += b
@@ -82,6 +91,12 @@ def _keep(item):
 
 datas = [d for d in datas if _keep(d)]
 binaries = [b for b in binaries if _keep(b)]
+
+# PaddleX 用 importlib.metadata 判断依赖是否安装；只有模块/DLL 而没有
+# .dist-info 仍会报 DependencyError。copy_metadata() 必须加入 datas，
+# 不能作为 Analysis 的未知关键字参数传入（PyInstaller 会静默忽略）。
+for _dist_name in BUNDLE_METADATA_DISTRIBUTIONS:
+    datas += copy_metadata(_dist_name)
 
 a = Analysis(
     ["desktop_app.py"],
@@ -99,9 +114,10 @@ pyz = PYZ(a.pure)
 exe = EXE(
     pyz, a.scripts, [],
     exclude_binaries=True,
-    name="glowfish_reader",
+    name=PRODUCT_DISPLAY_NAME,
     console=False,                  # 桌面 App：不弹控制台黑窗
     icon=os.path.join(HERE, "assets", "glowfish.ico"),   # 商标：与 glowfish 图库同一标识（多尺寸 ico）→ 任务栏/快捷方式/explorer
+    version=os.path.join(HERE, "version_info.txt"),
 )
 coll = COLLECT(
     exe, a.binaries, a.datas,

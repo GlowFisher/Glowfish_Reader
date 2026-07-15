@@ -93,7 +93,7 @@ def test_frontend_selected_export_menu_is_wired_to_current_dom_ids():
 
 def test_frontend_export_prefers_native_then_browser_save_picker_then_download():
     app = read_static("app.js")
-    flow = app.split("async function downloadExport", 1)[1].split("async function loadProofForExport", 1)[0]
+    flow = app.split("async function downloadExport", 1)[1].split("async function selectedPagesExportBody", 1)[0]
 
     assert 'gfBridge("save_export")' in flow
     assert "browserSaveExport(fname, blob)" in flow

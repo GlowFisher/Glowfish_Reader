@@ -1,33 +1,35 @@
-; GlowFish 史料阅读器 —— Inno Setup 安装脚本（本地桌面 App）
+; Glowfish Reader 史料阅读器 —— Inno Setup 安装脚本（本地桌面 App）
 ; 编译： "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss
 ; 前置： 先 pyinstaller 出 dist\glowfish_reader\（onedir）。产物 Output\glowfish_reader_setup.exe
 ; 说明：
 ;   · 按用户安装到 %LOCALAPPDATA%\Programs（PrivilegesRequired=lowest，免 UAC，对非技术用户友好）。
-;   · 用户史料数据落 %APPDATA%\GlowFish史料阅读器\，安装/卸载都不碰，卸载只删程序本体。
+;   · 用户史料数据落 %APPDATA%\Glowfish Reader 史料阅读器\，安装/卸载都不碰，卸载只删程序本体。
 ;   · 首装检查 WebView2 运行时（Win11 一般自带；缺失则跑随包 bootstrapper 静默装）。
 ; 命名：产物/可执行名用 ASCII 代号 glowfish_reader（便于 glowfish 生态产品管理）；
-;       用户可见显示名/快捷方式统一为「Glowfish Reader」；安装目录/数据目录仍用中文「GlowFish史料阅读器」，不影响已装用户数据。
+;       用户可见显示名/快捷方式统一为「Glowfish Reader」；安装目录/数据目录仍用中文「Glowfish Reader 史料阅读器」，不影响已装用户数据。
 
-#define AppName "Glowfish Reader"
+#define AppBaseName "Glowfish Reader"
 ; AppVersion 单一真源 = proofread/_version.py；release.ps1 用 ISCC 命令行 /DAppVersion=<ver> 覆盖。
 ; 下面的字面量仅为「手动编译不带 /D」时的兜底默认，#ifndef 保证 /D 优先、不冲突。
 #ifndef AppVersion
   #define AppVersion "1.0.0"
 #endif
-#define AppExe "glowfish_reader.exe"
+#define AppDisplayName AppBaseName + " V" + AppVersion
+#define AppExe AppDisplayName + ".exe"
 #define AppPublisher "Glowfish Reader"
 ; OutputBase 由 release.ps1 经 /DOutputBase 覆盖（代码小包用 *_code）；默认=全量包名
 #ifndef OutputBase
-  #define OutputBase "glowfish_reader_setup"
+  #define OutputBase AppDisplayName + " Setup"
 #endif
 
 [Setup]
 AppId={{8F3B2A10-7C4E-4D2A-9B6F-A1B2C3D4E5F6}
-AppName={#AppName}
+AppName={#AppDisplayName}
+AppVerName={#AppDisplayName}
 AppVersion={#AppVersion}
 AppPublisher={#AppPublisher}
-DefaultDirName={localappdata}\Programs\GlowFish史料阅读器
-DefaultGroupName={#AppName}
+DefaultDirName={localappdata}\Programs\{#AppDisplayName}
+DefaultGroupName={#AppDisplayName}
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
@@ -37,7 +39,7 @@ OutputBaseFilename={#OutputBase}
 ; 安装器/卸载向导图标 = 商标跃鱼标（与 exe 内嵌图标一致）
 SetupIconFile=assets\glowfish.ico
 Compression=lzma2/max
-SolidCompression=yes
+SolidCompression=no
 WizardStyle=modern
 UninstallDisplayIcon={app}\{#AppExe}
 ; 应用内更新：同 AppId 自动就地升级。升级时用 Restart Manager 关掉正在运行的旧版再覆盖文件；
@@ -45,9 +47,14 @@ UninstallDisplayIcon={app}\{#AppExe}
 CloseApplications=yes
 RestartApplications=no
 VersionInfoVersion={#AppVersion}
+VersionInfoCompany={#AppPublisher}
+VersionInfoDescription={#AppDisplayName} Setup
+VersionInfoProductName={#AppDisplayName}
+VersionInfoProductVersion={#AppVersion}
+UninstallDisplayName={#AppDisplayName}
 
 [Languages]
-Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
+Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "附加快捷方式:"; Flags: checkedonce
@@ -59,16 +66,16 @@ Source: "dist\glowfish_reader\*"; DestDir: "{app}"; Flags: recursesubdirs create
 ; Source: "MicrosoftEdgeWebview2Setup.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall; Check: WebView2Missing
 
 [Icons]
-Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExe}"
-Name: "{group}\卸载 {#AppName}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopicon
+Name: "{group}\{#AppDisplayName}"; Filename: "{app}\{#AppExe}"
+Name: "{group}\卸载 {#AppDisplayName}"; Filename: "{uninstallexe}"
+Name: "{autodesktop}\{#AppDisplayName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopicon
 
 [Run]
 ; 缺 WebView2 时静默装随包 bootstrapper（存在才跑）
 Filename: "{tmp}\MicrosoftEdgeWebview2Setup.exe"; Parameters: "/silent /install"; \
   Flags: waituntilterminated skipifdoesntexist; Check: WebView2Missing
 ; 交互安装：安装完给「立即运行」勾选项（静默更新时不显示也不触发）
-Filename: "{app}\{#AppExe}"; Description: "立即运行 {#AppName}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#AppExe}"; Description: "立即运行 {#AppDisplayName}"; Flags: nowait postinstall skipifsilent
 ; 应用内更新走 /SILENT 静默安装：装完自动重启 app（仅静默模式触发，避免与上面的交互项重复拉起）
 Filename: "{app}\{#AppExe}"; Flags: nowait runascurrentuser; Check: WizardSilent
 

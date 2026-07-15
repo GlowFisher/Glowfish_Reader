@@ -44,7 +44,7 @@ def _packaged(name, fmt, data, n, target, with_image):
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr(name + _EXT.get(fmt, ".bin"), data)
         for i, p in enumerate(target.get("pages", []), 1):
-            src = Path(p.get("image", ""))
+            src = M.page_image_path(target, p)
             if src.exists() and safefs.within_work(src):     # 原图须在沙箱内
                 try:
                     zf.write(src, f"{name}_原图/{i:04d}_{src.name}")
@@ -117,33 +117,65 @@ def _filter_pages(proof, page_ids):
     return [p for p in proof.get("pages", []) if str(p.get("page_id")) in wanted]
 
 
+def _resolved_pages(proof, pages, proof_path=None):
+    """Clone pages and pin each usable image to its source proof's safe absolute path."""
+    resolved = []
+    for page in pages:
+        cloned = dict(page)
+        src = M.resolve_original_page_image(proof, page, proof_path) if proof_path else M.page_image_path(proof, page)
+        cloned["image"] = str(src.resolve()) if (src and src.exists() and safefs.within_work(src)) else ""
+        resolved.append(cloned)
+    return resolved
+
+
+def _require_export_images(target, with_image):
+    if not with_image:
+        return
+    missing = []
+    for page in target.get("pages", []):
+        img = page.get("image", "")
+        if not img or not Path(img).exists():
+            missing.append({"batch": page.get("batch", target.get("batch", "")),
+                            "page_id": page.get("page_id", "")})
+    if missing:
+        raise HTTPException(422, {
+            "code": "export_images_missing",
+            "missing_count": len(missing),
+            "pages": missing[:10],
+        })
+
+
 def _export_selected(ctx, body, fmt, with_image, page_marks=False, with_annot=False):
     nm = safefs.coerce_batch(body.get("name") or "\u9009\u4e2d\u9875\u9762")
     pages, script, batch_name = [], "s", None
 
-    if body.get("selected"):
-        for item in body.get("selected") or []:
-            b = item.get("batch")
-            pr = _proof_of(ctx, b)
-            if not pr:
-                continue
-            selected_pages = _filter_pages(pr, item.get("page_ids"))
-            if selected_pages:
-                pages.extend(selected_pages)
-                script = pr.get("script", script)
-                if not batch_name:
-                    batch_name = safefs.safe_batch(b or "")
-    else:
-        proof = body.get("proof") or {}
-        batch_name = safefs.safe_batch(proof.get("batch", ""))
-        pages = _filter_pages(proof, body.get("page_ids"))
-        script = proof.get("script", script)
-        nm = batch_name or nm
+    selected = body.get("selected")
+    if not selected:
+        raise HTTPException(409, "client_outdated: \u8bf7\u5347\u7ea7\u6216\u91cd\u542f\u5e94\u7528\u540e\u91cd\u65b0\u5bfc\u51fa")
+
+    for item in selected:
+        b = item.get("batch")
+        if not b:
+            continue
+        reg = ctx.reg(safefs.safe_batch(b))
+        if not reg:
+            continue
+        proof_path = reg.get("proof_path", "")
+        pr = _proof_of(ctx, b)
+        if not pr:
+            continue
+        selected_pages = _resolved_pages(pr, _filter_pages(pr, item.get("page_ids")), proof_path=proof_path)
+        if selected_pages:
+            pages.extend(selected_pages)
+            script = pr.get("script", script)
+            if not batch_name:
+                batch_name = safefs.safe_batch(b or "")
 
     if not pages:
         raise HTTPException(400, "\u672a\u9009\u62e9\u9875\u9762")
     target = {"batch": nm, "script": script, "engine": "selected", "pages": pages}
     name = f"{batch_name or nm}_{len(pages)}\u9875_\u8f91\u5f55"
+    _require_export_images(target, with_image)
     data, n = M.doc_bytes(target, fmt, t2s=False, page_marks=page_marks, with_annotations=with_annot, with_images=with_image)
     return _packaged(name, fmt, data, n, target, with_image)
 
@@ -154,10 +186,11 @@ def _export_notebook(ctx, body, fmt, with_image, page_marks=False, with_annot=Fa
         pr = _proof_of(ctx, b)
         if not pr:
             continue
-        pages.extend(pr.get("pages", []))
+        pages.extend(_resolved_pages(pr, pr.get("pages", [])))
         script = pr.get("script", script)
     target = {"batch": nm, "script": script, "engine": "merged", "pages": pages}
     name = f"{nm}_辑录"
+    _require_export_images(target, with_image)
     data, n = M.doc_bytes(target, fmt, t2s=False, page_marks=page_marks, with_annotations=with_annot, with_images=with_image)
     return _packaged(name, fmt, data, n, target, with_image)
 

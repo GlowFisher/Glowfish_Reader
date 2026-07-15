@@ -249,11 +249,16 @@ function bindRowText(el, id) {
     const l = lineById(id), newText = el.textContent;
     const hadRed = l.red && l.red.some(Boolean);
     diffRed(l, newText);
-    if (hadRed || (l.red && l.red.some(Boolean))) {       // 仅含红字条目才重渲染 span（普通条目零 DOM 扰动?
-      const off = caretOffset(el);
+    // Re-render with both red mask and annotation highlights (if available)
+    const off = caretOffset(el);
+    if (typeof gfRenderRowWithAnnots === "function") {
+      // Recompute offset for this row
+      const offsets = typeof gfComputeRowOffsets === "function" ? gfComputeRowOffsets() : new Map();
+      gfRenderRowWithAnnots(el, l, offsets.get(id) || 0);
+    } else if (hadRed || (l.red && l.red.some(Boolean))) {
       el.innerHTML = redHTML(l.text, l.red);
-      setCaret(el, off == null ? l.text.length : off);
     }
+    setCaret(el, off == null ? l.text.length : off);
     refreshStats();
   }
 }
@@ -263,10 +268,16 @@ function wireRowButtons(rowEl, id, el) {
     b.onclick = (e) => { e.stopPropagation(); if (!b.disabled) op(b.dataset.op, id, el); };
   });
 }
-// ?竖排共用的行装配尾部：渲染文?+ 绑定编辑/按钮/拖拽 + 挂载（txtSel=横排 .txt / 竖排 .v-txt?
-function mountRow(wrap, rowEl, txtSel, id, l) {
+// 横竖排共用的行装配尾部：渲染文?+ 绑定编辑/按钮/拖拽 + 挂载（txtSel=横排 .txt / 竖排 .v-txt?
+// rowAbsStart = 本条在整页文本中的绝对字符偏移（用于批注区间裁剪）
+function mountRow(wrap, rowEl, txtSel, id, l, rowAbsStart) {
   const txt = rowEl.querySelector(txtSel);
-  renderEditable(txt, l);
+  // Use combined renderer that handles both red text and annotation highlights
+  if (typeof gfRenderRowWithAnnots === "function") {
+    gfRenderRowWithAnnots(txt, l, rowAbsStart);
+  } else {
+    renderEditable(txt, l);
+  }
   bindRowText(txt, id); wireRowButtons(rowEl, id, txt); initRowDrag(rowEl, id);
   wrap.appendChild(rowEl);
 }
@@ -276,6 +287,8 @@ function renderHorizontal() {
   const host = $("#editorBody");
   const wrap = document.createElement("div"); wrap.id = "lines";
   const pg = page(), vo = visibleOrder();
+  // Compute per-row absolute offsets for annotation rendering
+  const offsets = typeof gfComputeRowOffsets === "function" ? gfComputeRowOffsets() : new Map();
   pg.order.forEach((id, idx) => {
     const l = lineById(id); if (!l) return;
     const vi = vo.indexOf(id), del = !!l.deleted, low = l.score < lowConf;
@@ -300,7 +313,7 @@ function renderHorizontal() {
         <span class="score ${low ? "low" : "ok"}">${l.score.toFixed(2)}</span>
         <button class="btn btn-micro${l.para_break ? " on" : ""}" data-op="para" title="划分自然段（导出分段边界?><span class="para-ico"></span></button>
       </div>`;
-    mountRow(wrap, row, ".txt", id, l);
+    mountRow(wrap, row, ".txt", id, l, offsets.get(id) || 0);
   });
   host.appendChild(wrap);
 }
@@ -310,6 +323,8 @@ function renderVertical() {
   const host = $("#editorBody");
   const wrap = document.createElement("div"); wrap.id = "vlines";
   const pg = page(), vo = visibleOrder();
+  // Compute per-row absolute offsets for annotation rendering
+  const offsets = typeof gfComputeRowOffsets === "function" ? gfComputeRowOffsets() : new Map();
   pg.order.forEach((id, idx) => {
     const l = lineById(id); if (!l) return;
     const vi = vo.indexOf(id), del = !!l.deleted, low = l.score < lowConf;
@@ -334,7 +349,7 @@ function renderVertical() {
         </div>
         <div class="v-txt" contenteditable="true" spellcheck="false"></div>
       </div>`;
-    mountRow(wrap, col, ".v-txt", id, l);
+    mountRow(wrap, col, ".v-txt", id, l, offsets.get(id) || 0);
   });
   host.appendChild(wrap);
 }

@@ -86,10 +86,19 @@ def _single_mode_authorized(sid):
     ⚠此前 current_user() 在 single 模式下无条件放行 LOCAL_USER，account_gate() 只在
     /api/me 里跑，只影响"要不要弹登录窗"这个 UI 判断，从未拦过 content_api/export_api/
     library_api 等真正读写数据的接口——curl 直打这些接口可绕开登录/试用到期完全免验证。
-    这里补上同一套裁决（云账号 account_gate 或本机 sid 会话二选一），未过闸直接拒绝。"""
+    这里补上同一套裁决（云账号 account_gate 或本机 sid 会话二选一），未过闸直接拒绝。
+
+    云封禁即时生效：如果本机曾经有过云账号凭据且被服务器拒绝（disabled/expired），
+    则不回退到本地 sid 兜底——确保管理员后台封禁后用户无法通过本地会话继续使用。"""
     account, _ = license_api.account_gate()
     if account:
         return True
+    # 云账号被服务器明确拒绝（封禁/到期/登出）：不放行本地 sid 兜底。
+    d = license_api.store.load(license_api._path())
+    if d.get("account_block_reason"):
+        return False
+    if d.get("account_cred") and not d.get("account"):
+        return False
     return bool(auth.get_session_user(sid))
 
 

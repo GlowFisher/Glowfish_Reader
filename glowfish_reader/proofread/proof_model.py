@@ -528,7 +528,79 @@ def _add_docx_segments(doc, segments, font, size_pt, qn, indent=None, small=Fals
 
 
 
-def _page_image_path(proof, pg):
+def resolve_original_page_image(proof, page, proof_path):
+    """Resolve the original source image for a page, prioritizing <batch>/_src.
+
+    Unlike page_image_path which serves general-purpose image lookup (including
+    _img preview fallbacks), this function is dedicated to export: it always
+    prefers original _src files over _img previews.  Returns the resolved Path
+    if found and within the work root, else None.
+    """
+    import safefs as _safefs
+
+    proof_dir = Path(proof_path).parent
+    src_dir = proof_dir / "_src"
+
+    raw = str(page.get("image", ""))
+    page_id = str(page.get("page_id", ""))
+
+    # stems to try: from image filename and from page_id
+    stems = []
+    if raw:
+        stems.append(Path(raw).stem)
+    if page_id:
+        stems.append(Path(page_id).stem)
+
+    # 1. <batch>/_src  —  always the first choice for export originals
+    for stem in stems:
+        for ext in (".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp"):
+            candidate = src_dir / f"{stem}{ext}"
+            try:
+                if candidate.exists() and _safefs.within_work(candidate):
+                    return candidate
+            except Exception:
+                continue
+
+    # 2. proof.image_dir (if valid and inside work root)
+    image_dir = proof.get("image_dir")
+    if image_dir:
+        idir = Path(image_dir)
+        for stem in stems:
+            for ext in (".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp"):
+                candidate = idir / f"{stem}{ext}"
+                try:
+                    if candidate.exists() and _safefs.within_work(candidate):
+                        # still prefer _src if it exists (avoid stale image_dir
+                        # that points to _img when _src has the real original)
+                        if "_img" in candidate.parts and src_dir.exists():
+                            continue
+                        return candidate
+                except Exception:
+                    continue
+
+    # 3. absolute raw path as last resort (must pass sandbox check)
+    if raw:
+        raw_path = Path(raw)
+        if raw_path.is_absolute():
+            try:
+                if raw_path.exists() and _safefs.within_work(raw_path):
+                    return raw_path
+            except Exception:
+                pass
+
+    # 4. final fallback: the existing general-purpose resolver
+    existing = page_image_path(proof, page)
+    try:
+        if existing.exists() and _safefs.within_work(existing):
+            return existing
+    except Exception:
+        pass
+
+    return None
+
+
+def page_image_path(proof, pg):
+    """Resolve one page image, including legacy relative paths and extensions."""
     raw = str(pg.get("image", ""))
     src = Path(raw)
     image_dir = proof.get("image_dir")
@@ -557,7 +629,7 @@ def _page_image_path(proof, pg):
             return candidate
     return candidates[0] if candidates else src
 def _add_page_image(doc, proof, pg, max_width):
-    src = _page_image_path(proof, pg)
+    src = page_image_path(proof, pg)
     if not src.exists():
         return False
     try:

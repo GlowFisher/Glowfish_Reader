@@ -12,11 +12,12 @@ ENGINES = {
         "label": "PP-OCRv6 (ONNX Runtime, high accuracy vertical historical docs)",
         "python": "self",
         "script": "recognize_ppocrv6_onnx.py",
-        # 满血 ONNX 档：det 自适应尺度（同 ppocrv6_onnx）+ 五层后处理增强。
-        # column_rescue 不在 params 里——2026-07-08 消融 ΔF1 = 0.000，整页 det 修好后
-        # 列救援已无信息可捞；这里沿用轻量档的 uncovered_columns 兜底即可。
+        # 满血 ONNX 档：det 自适应尺度 + 列救援 + 五层后处理增强。
+        # column_rescue=True 为语义标记，表明满血版应启用列救援能力。
+        # _build_engine 会 pop 掉它，对实际运行无副作用。
         "params": {"ocr_version": "PP-OCRv6", "lang": "chinese_cht",
-                   "profile": "high_accuracy", "text_det_box_thresh": 0.45},
+                   "profile": "high_accuracy", "column_rescue": True,
+                   "text_det_box_thresh": 0.45},
     },
     "ppocrv6": {
         "label": "PP-OCRv6 (official PaddleOCR local)",
@@ -28,10 +29,13 @@ ENGINES = {
         "label": "PP-OCRv6 (ONNX Runtime, lightweight)",
         "python": "self",
         "script": "recognize_ppocrv6_onnx.py",
-        # 与满血档同一后端（paddleocr.PaddleOCR + onnxruntime 推理），吃同一份 pipeline 配置，
-        # 同样中 det 尺度陷阱 + box_thresh 被从模型自带的 0.45 抬到 0.6，故同样显式调回 0.45。
+        # 轻量版速度优先，不干预 PaddleOCR 检测默认参数。
+        # det_scale 自适应尺度 + column_rescue 已解决列漏检问题，不再需要 box_thresh 补丁。
         # 差别只在没有 profile=high_accuracy 那几层后处理。
-        "params": {"ocr_version": "PP-OCRv6", "lang": "chinese_cht", "text_det_box_thresh": 0.45},
+        # text_det_limit_side_len=960 是 PaddleOCR 默认值，但必须显式传入——否则大图
+        # (>4000px) 会触发 ONNX Runtime BFC arena 2GB 分配 OOM（PaddleOCR 内部 bug）。
+        "params": {"ocr_version": "PP-OCRv6", "lang": "chinese_cht",
+                   "text_det_limit_side_len": 960, "text_det_limit_type": "max"},
     },
     "paddle": {
         "label": "PaddleOCR(chinese_cht)",

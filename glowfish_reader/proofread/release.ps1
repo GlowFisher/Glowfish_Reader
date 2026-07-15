@@ -1,13 +1,13 @@
-# GlowFish Reader -- release / publish script (dev side).
+# Glowfish Reader -- release / publish script (dev side).
 # ASCII-only on purpose (PS 5.1 mis-parses params in non-BOM Chinese scripts).
 #
 # What it does:
 #   1. Read the single-source version from _version.py.
-#   2. (optional) Build the PyInstaller onedir via the .spec.
-#   3. Assert the frozen exe really carries every model/lexicon asset (fail the build if not).
-#   4. Compile one Inno Setup installer.
-#   5. Compute sha256 + size for the installer.
-#   6. Emit update.json for the application update channel.
+#   2. Run packaging dependency preflight.
+#   3. (optional) Build the PyInstaller onedir via the .spec.
+#   4. Run frozen asset, service, dependency, and real OCR gates.
+#   5. Compile one Inno Setup installer.
+#   6. Compute sha256 + size and emit update.json.
 #   7. Print (or, with -Upload, run) the scp commands to publish.
 #
 # Usage examples:
@@ -35,34 +35,79 @@ $verFile = Join-Path $here "_version.py"
 $m = Select-String -Path $verFile -Pattern '__version__\s*=\s*"([^"]+)"'
 if (-not $m) { throw "version not found in $verFile" }
 $ver = $m.Matches[0].Groups[1].Value
+$productName = "Glowfish Reader V$ver"
+$appExeName = "$productName.exe"
+$setupBase = "$productName Setup"
+$setupFileName = "$setupBase.exe"
 Write-Host "[release] version = $ver"
+Write-Host "[release] product = $productName"
 
-# --- 2. optional build (PyInstaller onedir) ---
+# --- 2. packaging dependency preflight (does not build) ---
+$py = Join-Path $here "..\.venv\Scripts\python.exe"
+if (-not (Test-Path $py)) { throw "venv python not found: $py" }
+Write-Host "[release] running packaging preflight ..."
+& $py (Join-Path $here "packaging_preflight.py")
+if ($LASTEXITCODE -ne 0) { throw "packaging preflight FAILED ($LASTEXITCODE)" }
+
+# --- 3. optional build (PyInstaller onedir) ---
 if ($Build) {
-  $py = Join-Path $here "..\.venv\Scripts\python.exe"
-  if (-not (Test-Path $py)) { throw "venv python not found: $py" }
   Write-Host "[release] building onedir via PyInstaller ..."
-  & $py -m PyInstaller --noconfirm (Join-Path $here "glowfish_reader.spec")
-  if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed ($LASTEXITCODE)" }
+  Push-Location $here
+  try {
+    & $py -m PyInstaller --clean --noconfirm "glowfish_reader.spec"
+    if ($LASTEXITCODE -ne 0) { throw "PyInstaller failed ($LASTEXITCODE)" }
+  } finally {
+    Pop-Location
+  }
 }
 
-# --- 3. capability gate: the frozen exe must carry every model + lexicon ---
+# --- 4. frozen executable gates ---
 # History: punct / mlm / lexicon each shipped missing at least once. The app still ran,
 # the correction layers silently no-op'd, nobody noticed. A failed build is far cheaper.
-$frozenExe = Join-Path $here "dist\glowfish_reader\glowfish_reader.exe"
+$distDir = Join-Path $here "dist\glowfish_reader"
+$frozenExe = Join-Path $distDir $appExeName
 if (Test-Path $frozenExe) {
-  Write-Host "[release] asserting bundled capabilities ..."
-  # The spec builds a windowed exe (console=False). PowerShell does NOT wait for GUI-subsystem
-  # processes with the call operator, and leaves $LASTEXITCODE unset -- so `& $exe` would look
-  # like a silent failure. Start-Process -Wait -PassThru is the only reliable way to get the code.
-  $cap = Start-Process -FilePath $frozenExe -ArgumentList "--selftest-capabilities" -NoNewWindow -Wait -PassThru
-  if ($cap.ExitCode -ne 0) { throw "capability selftest FAILED ($($cap.ExitCode)) -- assets missing from the bundle, refusing to ship" }
-  Write-Host "[release]   capabilities OK"
+  # Windowed executables require Start-Process -Wait -PassThru to expose the exit code.
+  $gateDataRoot = Join-Path $here (".release-gates-" + [guid]::NewGuid().ToString("N"))
+  New-Item -ItemType Directory -Path $gateDataRoot | Out-Null
+  function Invoke-FrozenGate([string]$Name, [string]$Argument) {
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $frozenExe
+    $psi.Arguments = $Argument
+    $psi.UseShellExecute = $false
+    $psi.CreateNoWindow = $true
+    $psi.WorkingDirectory = $distDir
+    $p = [System.Diagnostics.Process]::Start($psi)
+    $p.WaitForExit()
+    if ($p.ExitCode -ne 0) { throw "$Name FAILED ($($p.ExitCode)); refusing to ship" }
+    Write-Host "[release]   $Name OK"
+  }
+  # Release verification must never touch a developer's real profile data.
+  $previousGateDataRoot = $env:SHUPAI_DATA_DIR
+  $env:SHUPAI_DATA_DIR = $gateDataRoot
+  try {
+    Invoke-FrozenGate "capabilities" "--selftest-capabilities"
+    Invoke-FrozenGate "service selftest" "--selftest"
+    Invoke-FrozenGate "OCR dependency metadata" "--selftest-ocr-deps"
+    Invoke-FrozenGate "offline OCR selftest" "--selftest-ocr"
+    Invoke-FrozenGate "image export + runtime logging fixes" "--selftest-release-fixes"
+  } finally {
+    if ($null -eq $previousGateDataRoot) {
+      Remove-Item Env:SHUPAI_DATA_DIR -ErrorAction SilentlyContinue
+    } else {
+      $env:SHUPAI_DATA_DIR = $previousGateDataRoot
+    }
+    Remove-Item -LiteralPath $gateDataRoot -Recurse -Force -ErrorAction SilentlyContinue
+  }
 } else {
   throw "frozen exe not found: $frozenExe (run PyInstaller first, or pass -Build)"
 }
 
-# --- 4. compile installers ---
+Write-Host "[release] auditing frozen payload ..."
+& $py (Join-Path $here "packaging_payload_audit.py") $distDir $productName
+if ($LASTEXITCODE -ne 0) { throw "frozen payload audit FAILED ($LASTEXITCODE)" }
+
+# --- 5. compile installer ---
 $isccCandidates = @(
   "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
   "C:\Program Files\Inno Setup 6\ISCC.exe",
@@ -72,19 +117,20 @@ $ISCC = $isccCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
 if (-not $ISCC) { throw ("ISCC not found in any of: " + ($isccCandidates -join '; ') + " (install Inno Setup 6 or edit path)") }
 $iss = Join-Path $here "installer.iss"
 Write-Host "[release] compiling FULL installer ..."
-& $ISCC "/DAppVersion=$ver" $iss
+& $ISCC "/DAppVersion=$ver" "/DOutputBase=$setupBase" $iss
 if ($LASTEXITCODE -ne 0) { throw "ISCC (full) failed ($LASTEXITCODE)" }
 
 # --- 4. versioned artifacts + hashes ---
 $outDir  = Join-Path $here "Output"
-$built   = Join-Path $outDir "glowfish_reader_setup.exe"
+$built = Join-Path $outDir $setupFileName
 if (-not (Test-Path $built)) { throw "installer not produced: $built" }
-$verName = "glowfish_reader_setup_$ver.exe"
-$verOut  = Join-Path $outDir $verName
-Copy-Item $built $verOut -Force
+$verOut = $built
+$meta = (Get-Item $verOut).VersionInfo
+if ($meta.ProductName.Trim() -ne $productName) { throw "installer ProductName mismatch: $($meta.ProductName)" }
+if ($meta.ProductVersion.Trim() -ne $ver) { throw "installer ProductVersion mismatch: $($meta.ProductVersion)" }
 $sha  = (Get-FileHash $verOut -Algorithm SHA256).Hash.ToLower()
 $size = (Get-Item $verOut).Length
-Write-Host "[release] full  = $verOut"
+Write-Host "[release] setup = $verOut"
 Write-Host "[release]   sha256 = $sha  size = $size"
 
 # --- 5. manifest update.json v2 (written WITHOUT BOM so requests.json() can parse it) ---
@@ -92,7 +138,7 @@ $manifest = [ordered]@{
   latest        = $ver
   min_supported = $MinSupported
   mandatory     = [bool]$Mandatory
-  url           = "$DownloadBase/$verName"
+  url           = "$DownloadBase/$([uri]::EscapeDataString($setupFileName))"
   sha256        = $sha
   size          = $size
   notes         = $Notes
@@ -108,14 +154,14 @@ Write-Host $json
 $keyArg = @(); if ($SshKey) { $keyArg = @("-i", $SshKey) }
 if ($Upload) {
   Write-Host "[release] uploading installer(s) + manifest ..."
-  & scp @keyArg $verOut "${SshTarget}:$RemoteDlDir/$verName"
+  & scp @keyArg $verOut "${SshTarget}:$RemoteDlDir/$setupFileName"
   if ($LASTEXITCODE -ne 0) { throw "scp full installer failed" }
   & scp @keyArg $manifestPath "${SshTarget}:$RemoteManifest"
   if ($LASTEXITCODE -ne 0) { throw "scp manifest failed" }
-  Write-Host "[release] published. Live at: $DownloadBase/$verName"
+  Write-Host "[release] published. Live at: $DownloadBase/$([uri]::EscapeDataString($setupFileName))"
 } else {
   Write-Host ""
   Write-Host "To publish (installer first, manifest LAST):"
-  Write-Host "  scp $verOut ${SshTarget}:$RemoteDlDir/$verName"
+  Write-Host "  scp `"$verOut`" `"${SshTarget}:$RemoteDlDir/$setupFileName`""
   Write-Host "  scp $manifestPath ${SshTarget}:$RemoteManifest"
 }

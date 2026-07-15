@@ -106,7 +106,7 @@ def test_high_accuracy_page_failure_is_reported_not_swallowed(monkeypatch, tmp_p
 
 
 def test_lightweight_profile_has_no_high_accuracy_meta(monkeypatch, tmp_path):
-    """轻量档不带 profile/merge_stats，但同样吃 det 自适应。"""
+    """轻量档不带 profile/merge_stats/det_adaptive——det 参数由引擎构造时定死。"""
     monkeypatch.setenv("GF_OCR_CONFUSION", "0")
     img = _img(tmp_path / "p001.png", 4000, 6000)
     norm = tmp_path / "_img"
@@ -120,7 +120,9 @@ def test_lightweight_profile_has_no_high_accuracy_meta(monkeypatch, tmp_path):
     out = o.recognize_one(engine, img, norm, profile=None)
 
     assert "profile" not in out["ocr_meta"]
-    assert out["ocr_meta"]["det_adaptive"] is True
+    # 轻量版 page_det 永为 None→det_adaptive=False；det 参数由 _build_engine 时定死。
+    assert out["ocr_meta"]["det_adaptive"] is False
+    assert out["ocr_meta"]["body_region"] == [0, 0, 4000, 6000]
 
 
 def test_annotate_runs_after_enhancement_so_rescued_lines_are_reclassified(monkeypatch, tmp_path):

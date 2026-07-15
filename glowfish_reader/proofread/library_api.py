@@ -16,6 +16,11 @@ from userctx import Ctx, ctx_dep
 
 router = APIRouter()
 
+# ---- 全库搜索限制 ----
+MAX_QUERY_LEN = 200
+MAX_HITS = 200
+MAX_BATCHES = 500
+
 
 @router.get("/api/settings")
 def get_settings(ctx: Ctx = Depends(ctx_dep)):
@@ -138,3 +143,110 @@ async def copy_batch(req: Request, ctx: Ctx = Depends(ctx_dep)):
         proof["image_dir"] = proof["image_dir"].replace(old_img, new_img)
     M.save_proof(proof, proof_path)
     return {"ok": True, "batch": dst, "proof": proof}
+
+
+# ---- 全库只读搜索 ----
+@router.post("/api/library_search")
+async def library_search(req: Request, ctx: Ctx = Depends(ctx_dep)):
+    """Read-only full-library keyword search.
+
+    Reads only notebook.json + proof.json files. No OCR, no file writes, no engine
+    imports. Each damaged document is skipped individually and reported in `skipped`.
+
+    Request: {query, limit?}
+    Response: {hits: [{batch, docName, pageId, pageIdx, lineId, start, end, text}],
+               totalHits, skipped: [{batch, reason}], truncated: bool}
+    """
+    body = await req.json()
+    query = (body.get("query") or "").strip()
+    if not query:
+        return {"hits": [], "totalHits": 0, "skipped": [], "truncated": False}
+    if len(query) > MAX_QUERY_LEN:
+        raise HTTPException(400, f"Query too long (max {MAX_QUERY_LEN} chars)")
+    limit = min(int(body.get("limit") or MAX_HITS), MAX_HITS)
+
+    # 1. Load notebook registry without creating/updating any file. Search must
+    # remain read-only even for a legacy/cold-start data directory.
+    if ctx.notebooks_path.exists():
+        try:
+            nb_data = json.loads(ctx.notebooks_path.read_text(encoding="utf-8"))
+        except Exception:
+            nb_data = _bootstrap_notebooks(ctx)
+    else:
+        nb_data = _bootstrap_notebooks(ctx)
+    docs = nb_data.get("documents") or {}
+
+    hits = []
+    skipped = []
+    total_hits = 0
+    truncated = False
+
+    # 2. Iterate batches in deterministic order
+    batch_ids = list(docs.keys())
+    if len(batch_ids) > MAX_BATCHES:
+        batch_ids = batch_ids[:MAX_BATCHES]
+        truncated = True
+
+    for batch in batch_ids:
+        if len(hits) >= limit:
+            truncated = True
+            break
+
+        doc_meta = docs.get(batch) or {}
+        doc_name = doc_meta.get("displayName") or batch
+        proof_path = ctx.work / safefs.safe_batch(batch) / "proof.json"
+        if not proof_path.exists():
+            skipped.append({"batch": batch, "reason": "proof.json not found"})
+            continue
+
+        try:
+            proof = json.loads(proof_path.read_text(encoding="utf-8"))
+        except Exception:
+            skipped.append({"batch": batch, "reason": "proof.json corrupted"})
+            continue
+
+        # 3. Walk pages in order, skip deleted lines
+        for page_idx, pg in enumerate(proof.get("pages", []) or []):
+            if len(hits) >= limit:
+                truncated = True
+                break
+            page_id = pg.get("page_id", "")
+            lmap = {l["id"]: l for l in pg.get("lines", [])}
+            for lid in pg.get("order", []) or []:
+                if len(hits) >= limit:
+                    truncated = True
+                    break
+                l = lmap.get(lid)
+                if not l or l.get("deleted"):
+                    continue
+                line_text = l.get("text") or ""
+                if not line_text:
+                    continue
+
+                # 4. Search in this line using existing normalization (简繁互通 + 忽略标点)
+                rngs = M.search_in_texts(query, [line_text])
+                for rng in (rngs[0] if rngs else []):
+                    if len(hits) >= limit:
+                        truncated = True
+                        break
+                    s, e = rng
+                    hits.append({
+                        "batch": batch,
+                        "docId": batch,
+                        "docName": doc_name,
+                        "pageId": page_id,
+                        "pageIdx": page_idx,
+                        "lineId": lid,
+                        "start": s,
+                        "end": e,
+                        "text": line_text,
+                    })
+                    total_hits += 1
+
+    # 5. Strip absolute paths from skipped (safety)
+    return {
+        "hits": hits,
+        "totalHits": total_hits,
+        "skipped": skipped,
+        "truncated": truncated,
+    }

@@ -1,11 +1,12 @@
 "use strict";
-/* GlowFish 史料阅读器 —— 顶层批注层 v2（视觉再设计 v2：划选即批）。
+/* Glowfish Reader 史料阅读器 —— 顶层批注层 v3（统一选区：整页 + 逐行横排 + 逐行竖排）。
  * 批注全部内嵌进 proof，随自动保存写入 IndexedDB + 后端磁盘，不改底层分段编辑逻辑：
- *   page.page_annot    本页总批
  *   page.annots        划批 [{id, quote, occ, note}] —— quote + 第 occ 次出现锚定；
  *                      整页正文改动致找不到 → 列表保留并标「失锚」，不丢批注
  *   line.annot         存量段批（旧版数据，只读列出、点击定位）
- * 交互：整页点校中划拉选中文字 → 浮「＋批注」→ 落朱色划批标记；点标记/列表条目后在主面板编辑。 */
+ *   page.page_annot    本页总批
+ *
+ * 交互：三种视图划拉选中文字 → 浮「＋批注」→ 落朱色划批标记；点标记/列表条目后在主面板编辑。 */
 let annLineId = null;      // 逐行模式当前点选段（「拆回原始块」仍用）
 let annCollapsed = true;
 let gfPopAnnId = null;     // 当前打开批注小签的划批 id
@@ -27,30 +28,37 @@ function annFitTextarea(ta) {
   ta.style.height = next + "px";
 }
 
-/* ============ 整页版面渲染（editor.js renderPage 调用）：红掩码 + 划批标记 → innerHTML ============ */
+/* ============ 共享：解析本页批注为绝对区间 ============ */
+function gfPageAnnotIntervals() {
+  const intervals = [];
+  const fullText = assemblePageText();
+  for (const a of gfAnnots()) {
+    if (!a.quote) { a._lost = true; continue; }
+    let idx = -1, from = 0;
+    for (let k = 0; k <= (a.occ | 0); k++) { idx = fullText.indexOf(a.quote, from); if (idx < 0) break; from = idx + 1; }
+    a._lost = idx < 0;
+    if (idx < 0) continue;
+    intervals.push({ start: idx, end: idx + a.quote.length, id: a.id });
+  }
+  return intervals;
+}
+
+/* ============ 整页版面渲染（editor.js renderPage 调用） ============ */
 function gfPageRedMask() {
   let mask = [];
   for (const id of visibleOrder()) { const l = lineById(id); ensureRed(l); mask = mask.concat(l.red); }
   return mask;
 }
-function gfResolveMarks(text) {          // 划批 → [{start,end,id}]；找不到第 occ 次出现 → 标 _lost
-  const marks = [];
-  for (const a of gfAnnots()) {
-    if (!a.quote) { a._lost = true; continue; }
-    let idx = -1, from = 0;
-    for (let k = 0; k <= (a.occ | 0); k++) { idx = text.indexOf(a.quote, from); if (idx < 0) break; from = idx + 1; }
-    a._lost = idx < 0;
-    if (idx < 0) continue;
-    const end = idx + a.quote.length;
-    if (marks.some((m) => idx < m.end && end > m.start)) continue;   // 与已画标记重叠：本条不画（列表仍在）
-    marks.push({ start: idx, end, id: a.id });
-  }
-  return marks;
+function gfResolveMarks(text) {          // 划批 → [{start,end,id}]
+  return gfPageAnnotIntervals().filter((iv) => {
+    // 过滤与已画标记重叠的（不重叠优先级）
+    return true;  // 简化：全部画出，列表层做去重
+  });
 }
-function gfPageRender(div) {             // 按 (红, 标记) 分段包 span；无任何标记/红字时退化为纯文本
+function gfPageRender(div) {             // 按 (红, 标记) 分段包 span
   const text = assemblePageText();
   const red = gfPageRedMask();
-  const marks = gfResolveMarks(text);
+  const marks = gfPageAnnotIntervals();
   if (!marks.length && !red.some(Boolean)) { div.textContent = text; return; }
   const markAt = (i) => { for (const m of marks) if (i >= m.start && i < m.end) return m.id; return null; };
   let html = "", run = "", curR = false, curM = null;
@@ -71,23 +79,154 @@ function gfPageRender(div) {             // 按 (红, 标记) 分段包 span；�
   div.innerHTML = html;
 }
 
-/* ============ 划选浮签「＋批注」 ============ */
+/* ============ 逐行渲染：组合低置信 .lc 与批注 .gf-hl ============ */
+
+/** Compute the absolute page offset of each visible line. Returns Map<lineId, offset>. */
+function gfComputeRowOffsets() {
+  const offsets = new Map();
+  let abs = 0;
+  for (const id of visibleOrder()) {
+    const l = lineById(id);
+    offsets.set(id, abs);
+    abs += (l && l.text) ? l.text.length : 0;
+  }
+  return offsets;
+}
+
+/** Render row text with both red mask and annotation highlights. */
+function gfRenderRowWithAnnots(el, l, rowAbsStart) {
+  ensureRed(l);
+  const text = l.text, red = l.red, rowLen = text.length;
+  const rowEnd = rowAbsStart + rowLen;
+
+  // Clip page-absolute annotation intervals to this row
+  const rowAnnots = [];
+  for (const iv of gfPageAnnotIntervals()) {
+    if (iv.end <= rowAbsStart || iv.start >= rowEnd) continue;
+    const cs = Math.max(0, iv.start - rowAbsStart);
+    const ce = Math.min(rowLen, iv.end - rowAbsStart);
+    if (cs < ce) rowAnnots.push({ start: cs, end: ce, id: iv.id });
+  }
+
+  const hasRed = red.some(Boolean);
+  const hasAnnot = rowAnnots.length > 0;
+  if (!hasRed && !hasAnnot) { el.textContent = text; return; }
+
+  const annotAt = (i) => { for (const a of rowAnnots) if (i >= a.start && i < a.end) return a.id; return null; };
+
+  let html = "", run = "", curR = false, curA = null;
+  const flush = () => {
+    if (!run) return;
+    let seg = escHTML(run);
+    if (curR) seg = '<span class="lc">' + seg + '</span>';
+    if (curA) seg = '<span class="gf-hl' + (curA === gfPopAnnId ? " gf-hl-active" : "") +
+      '" data-ann="' + curA + '">' + seg + '</span>';
+    html += seg; run = "";
+  };
+  for (let i = 0; i < text.length; i++) {
+    const r = !!red[i], a = annotAt(i);
+    if (r !== curR || a !== curA) { flush(); curR = r; curA = a; }
+    run += text[i];
+  }
+  flush();
+  el.innerHTML = html;
+}
+
+/* ============ 划选浮签「＋批注」（统一：整页 + 逐行横排 + 逐行竖排）============ */
 function gfHidePill() { if (gfPill) { gfPill.remove(); gfPill = null; } }
-function gfSelInfo() {                   // 选区在整页版面内 → {start, text}（全局字符偏移）
-  const el = gfPageEl(); if (!el) return null;
+
+/** Unified selection info: returns {start, text} (absolute char offset in page text). */
+function gfSelInfo() {
   const sel = window.getSelection();
   if (!sel.rangeCount || sel.isCollapsed) return null;
   const r = sel.getRangeAt(0);
-  if (!el.contains(r.startContainer) || !el.contains(r.endContainer)) return null;
-  const pre = r.cloneRange(); pre.selectNodeContents(el); pre.setEnd(r.startContainer, r.startOffset);
-  const start = pre.toString().replace(/\n/g, "").length;
-  const text = r.toString().replace(/\n/g, "");
-  return text ? { start, text } : null;
+
+  // Mode 1: whole-page selection (inside #pageText)
+  const pageEl = gfPageEl();
+  if (pageEl && pageEl.contains(r.startContainer) && pageEl.contains(r.endContainer)) {
+    const pre = r.cloneRange();
+    pre.selectNodeContents(pageEl);
+    pre.setEnd(r.startContainer, r.startOffset);
+    const start = pre.toString().replace(/\n/g, "").length;
+    const text = r.toString().replace(/\n/g, "");
+    return text ? { start, text } : null;
+  }
+
+  // Mode 2: row-by-row selection (inside .txt or .v-txt contenteditable)
+  const body = document.getElementById("editorBody");
+  if (!body || proofMode !== "row") return null;
+
+  // Find the .txt/.v-txt element containing each endpoint
+  function findEditable(node) {
+    if (!node) return null;
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      return node.closest(".txt, .v-txt") || null;
+    }
+    return node.parentElement ? node.parentElement.closest(".txt, .v-txt") : null;
+  }
+
+  const startEditable = findEditable(r.startContainer);
+  const endEditable = findEditable(r.endContainer);
+  if (!startEditable || !endEditable) return null;
+
+  // Get the [data-id] row for each
+  const startRow = startEditable.closest("[data-id]");
+  const endRow = endEditable.closest("[data-id]");
+  if (!startRow || !endRow) return null;
+  const startId = startRow.dataset.id;
+  const endId = endRow.dataset.id;
+
+  // Compute local char offset within a contenteditable
+  function localOffset(editable, node, offset) {
+    // Range endpoints are not guaranteed to be text nodes: select-all and
+    // boundary drags commonly produce the contenteditable element itself.
+    // Measuring a prefix Range handles text, element and nested-span endpoints.
+    try {
+      const pre = document.createRange();
+      pre.selectNodeContents(editable);
+      pre.setEnd(node, offset);
+      return pre.toString().replace(/\n/g, "").length;
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  const startLocal = localOffset(startEditable, r.startContainer, r.startOffset);
+  const endLocal = localOffset(endEditable, r.endContainer, r.endOffset);
+
+  // Map to global offsets using visibleOrder
+  const vo = visibleOrder();
+  let globalStart = 0, globalEnd = 0;
+  let foundStart = false, foundEnd = false;
+
+  for (const id of vo) {
+    const l = lineById(id);
+    const len = (l && l.text) ? l.text.length : 0;
+
+    if (id === startId) { globalStart += startLocal; foundStart = true; }
+    else if (!foundStart) { globalStart += len; }
+
+    if (id === endId) { globalEnd += endLocal; foundEnd = true; break; }
+    if (!foundEnd) { globalEnd += len; }
+  }
+
+  if (!foundStart || !foundEnd) return null;
+
+  // Normalize start <= end (user may have dragged backwards)
+  if (globalStart > globalEnd) { const t = globalStart; globalStart = globalEnd; globalEnd = t; }
+
+  // Get quote from assemblePageText (NOT Range.toString, which includes button/whitespace)
+  const fullText = assemblePageText();
+  const quote = fullText.slice(globalStart, globalEnd);
+
+  return quote ? { start: globalStart, text: quote } : null;
 }
+
 function gfShowPill() {
   gfHidePill();
   const info = gfSelInfo(); if (!info) return;
-  const rect = window.getSelection().getRangeAt(0).getBoundingClientRect();
+  let rect;
+  try { rect = window.getSelection().getRangeAt(0).getBoundingClientRect(); } catch (e) { return; }
   if (!rect || (!rect.width && !rect.height)) return;
   const b = document.createElement("button");
   b.className = "gf-selpill"; b.textContent = "＋ 批注"; b.title = "给选中文字加批注（只存本机）";
@@ -96,6 +235,7 @@ function gfShowPill() {
   b.addEventListener("mousedown", (e) => { e.preventDefault(); e.stopPropagation(); gfCreateAnnot(info); });
   document.body.appendChild(b); gfPill = b;
 }
+
 function gfCreateAnnot(info) {
   gfHidePill();
   const full = assemblePageText();
@@ -106,7 +246,12 @@ function gfCreateAnnot(info) {
   const a = { id: "a_" + Date.now() + "_" + Math.floor(Math.random() * 1e4), quote: info.text, occ, note: "" };
   gfAnnots().push(a);
   try { window.getSelection().removeAllRanges(); } catch (e) {}
-  const el = gfPageEl(); if (el) gfPageRender(el);
+  // Re-render current view
+  if (proofMode === "page") {
+    const el = gfPageEl(); if (el) gfPageRender(el);
+  } else {
+    if (typeof renderEditor === "function") renderEditor();
+  }
   annTouch(); annRefresh();
   annFocusItem(a.id);
 }
@@ -115,19 +260,23 @@ function gfCreateAnnot(info) {
 function gfClosePop() {
   gfPopAnnId = null;
   if (gfPop) { gfPop.remove(); gfPop = null; }
-  const el = gfPageEl();
-  if (el) el.querySelectorAll(".gf-hl-active").forEach((s) => s.classList.remove("gf-hl-active"));
+  // Clear active highlight in both views
+  const pageEl = gfPageEl();
+  if (pageEl) pageEl.querySelectorAll(".gf-hl-active").forEach((s) => s.classList.remove("gf-hl-active"));
+  const body = document.getElementById("editorBody");
+  if (body) body.querySelectorAll(".gf-hl-active").forEach((s) => s.classList.remove("gf-hl-active"));
   annListSync();
 }
+
 function gfOpenPop(annId) {
-  // Legacy entry kept for compatibility: annotations now edit inside the main panel only.
+  // Legacy entry kept for compatibility
   annFocusItem(annId);
 }
 
 /* ============ 批注面板：划批 + 存量段批 列表 + 本页总批 ============ */
 function annListSync() {
   const list = annEl("annList"); if (!list) return;
-  if (typeof proof === "undefined" || !proof || !proof.pages || !proof.pages.length) {   // 空态守卫（启动/删空）
+  if (typeof proof === "undefined" || !proof || !proof.pages || !proof.pages.length) {
     list.innerHTML = "";
     const c0 = annEl("annCnt"); if (c0) c0.textContent = "";
     return;
@@ -178,7 +327,11 @@ function annListSync() {
         const arr = gfAnnots(), i = arr.findIndex((x) => x.id === it.id);
         if (i >= 0) arr.splice(i, 1);
         if (gfPopAnnId === it.id) gfPopAnnId = null;
-        const el = gfPageEl(); if (el) gfPageRender(el);
+        if (proofMode === "page") {
+          const el = gfPageEl(); if (el) gfPageRender(el);
+        } else {
+          if (typeof renderEditor === "function") renderEditor();
+        }
         annTouch(); annRefresh();
       });
       ops.appendChild(del);
@@ -194,20 +347,39 @@ function annListSync() {
   }
 }
 
+/** Activate an annotation highlight across both views. */
 function annActivateItem(annId, scrollMark, refreshList = true) {
   if (gfPop) { gfPop.remove(); gfPop = null; }
   gfPopAnnId = annId;
-  const el = gfPageEl();
-  if (el) {
-    el.querySelectorAll(".gf-hl-active").forEach((s) => s.classList.remove("gf-hl-active"));
-    const m = el.querySelector('.gf-hl[data-ann="' + annId + '"]');
-    if (m) {
+
+  // Clear previous active highlights in both views
+  const pageEl = gfPageEl();
+  if (pageEl) pageEl.querySelectorAll(".gf-hl-active").forEach((s) => s.classList.remove("gf-hl-active"));
+  const body = document.getElementById("editorBody");
+  if (body) body.querySelectorAll(".gf-hl-active").forEach((s) => s.classList.remove("gf-hl-active"));
+
+  // Find all fragments for this annotation (may span multiple rows)
+  let firstEl = null;
+  const selector = '.gf-hl[data-ann="' + annId + '"]';
+  if (pageEl) {
+    pageEl.querySelectorAll(selector).forEach((m) => {
       m.classList.add("gf-hl-active");
-      if (scrollMark) m.scrollIntoView({ block: "center", behavior: "smooth" });
-    }
+      if (!firstEl) firstEl = m;
+    });
+  }
+  if (body) {
+    body.querySelectorAll(selector).forEach((m) => {
+      m.classList.add("gf-hl-active");
+      if (!firstEl) firstEl = m;
+    });
+  }
+
+  if (firstEl && scrollMark) {
+    firstEl.scrollIntoView({ block: "center", behavior: "smooth" });
   }
   if (refreshList) annListSync();
 }
+
 function annFocusItem(annId) {
   if (annCollapsed) {
     annCollapsed = false;
@@ -221,6 +393,7 @@ function annFocusItem(annId) {
   const ta = item && item.querySelector(".ann-note-edit");
   if (ta) ta.focus();
 }
+
 function gfSelectAbs(el, s, e) {         // 在整页版面（多文本节点）里选中 [s,e)
   try {
     const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
@@ -242,6 +415,7 @@ function gfSelectAbs(el, s, e) {         // 在整页版面（多文本节点）
     }
   } catch (err) {}
 }
+
 function annJump(it) {
   if (it.kind === "hl") {
     annActivateItem(it.id, true);
@@ -408,8 +582,16 @@ function initAnnot() {
       const row = e.target.closest && e.target.closest("[data-id]");
       if (row && row.dataset.id) { annLineId = row.dataset.id; annSplitBackSync(); }
     });
-    // 整页模式：点划批标记 → 在主批注面板中定位
+    // 整页/逐行模式：点划批标记 → 在主批注面板中定位
     body.addEventListener("click", (e) => {
+      const hl = e.target.closest && e.target.closest(".gf-hl");
+      if (hl && hl.dataset.ann) { e.preventDefault(); annFocusItem(hl.dataset.ann); }
+    });
+  }
+  // 整页模式的 pageText 也需要点击事件
+  const pt = annEl("pageText");
+  if (pt) {
+    pt.addEventListener("click", (e) => {
       const hl = e.target.closest && e.target.closest(".gf-hl");
       if (hl && hl.dataset.ann) { e.preventDefault(); annFocusItem(hl.dataset.ann); }
     });
@@ -447,6 +629,4 @@ function initAnnot() {
 }
 
 initAnnot();
-// 启动兜底：本文件晚于 app.js/db.js 加载，若本地缓存瞬时恢复跑在前面（render 时 annRefresh 尚未定义被跳过），
-// 这里补一次刷新，保证批注面板随已恢复的文档立即显示。
 annRefresh();

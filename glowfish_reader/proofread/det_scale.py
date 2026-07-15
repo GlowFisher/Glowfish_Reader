@@ -8,35 +8,37 @@
 2671×4000 送进 DB 检测器，缩放后列间距 243px，远超训练尺度 → 笔画松散的列 DB 置信度
 先跌破 box_thresh → **整列被丢弃**。
 
-**为什么不是定值**：实测最优 limit 逐页不同（s04→960 / s03→1600 / s01→1600 / s02 不缩），
-真正的自变量是**缩放后的字符尺寸**，甜点区约 60–70px。故按页估列距反推 limit：
+**为什么不是定值**：DB 检测器对列间距的容忍度是一个**区间**，不是单点。实测：
 
-    limit_side_len = 长边 × 目标列距 / 实测列距        （limit_type = "max"）
+    列距 50-120px：检测稳定，不漏不碎
+    列距 120-200px：开始出现碎片
+    列距 >200px：碎片严重
+    列距 <40px：列间粘连
+
+故策略为「只要缩进安全区间就停手，绝不多缩」——宽列距文档（族谱）不会再被压到 13%，
+窄列距小图保持不动。同时设绝对保底 MIN_SCALE=0.35，无论列距多大，压缩后长边不低于
+原长边的 35%，防止笔画细节丢失导致真字漏检。
 
 **同一 scale 必须同时用于列裁剪**：裁剪图（如 850×6740）长边同样被夹到 4000，
-不覆盖的话尺度陷阱原样复现（实测 col008 的窄裁+加宽裁 det 都漏掉裁剪正中那一列）。
-
-**尺度是刀锋解，需要一道兜底**：det 对松散笔画列的 DB 置信度就卡在 box_thresh 附近抖动——
-同一页 target=58/65 都检出、62 整列塌掉，好尺度呈窄带（pitch 46/58/65 可，50/62/78 不可），
-不是平滑甜点区，是阈值噪声。兜底 = `text_det_box_thresh` 从 PaddleOCR pipeline 强加的 0.6
-调回**模型 inference.yml 自带的 0.45**（见 engines.py），实测最坏尺度也能直接检出该列。
-
-（2026-07-08 消融：第二尺度整页候选 full_enhanced_alt 在手写全集上 Δ F1 = -0.002，不值一倍
-识别趟数，已随多候选一并裁撤；det 自适应本身仍是最大单项收益 Δ F1 = -0.017。）
+不覆盖的话尺度陷阱原样复现。
 
 开关：
-  SHUPAI_DET_ADAPTIVE_SCALE=0   关闭自适应，回到 PaddleOCR 原生默认（完全回滚）
-  SHUPAI_DET_TARGET_PITCH=58    目标列距（px）
+  SHUPAI_DET_ADAPTIVE_SCALE=0     关闭自适应，回到 PaddleOCR 原生默认
+  SHUPAI_DET_PITCH_MAX=120        安全区上界（列距高于此值才缩小）
+  SHUPAI_DET_PITCH_MIN=60         安全区下界（列距低于此值才放大）
+  SHUPAI_DET_MIN_SCALE=0.35       绝对保底缩放比
   SHUPAI_DET_LIMIT_SIDE_LEN=1600  估不出列距时的 flat 兜底
 """
 import os
 
-TARGET_PITCH = 58.0     # 缩放后列距目标；实测 gated 集（s01+s02+s04）最优
-FLAT_LIMIT = 1600       # 估不出列距时的兜底（手写全集总分最高的定值）
-MIN_LIMIT = 64          # PaddleOCR 自身下限
-MAX_LIMIT = 4000        # PaddleX max_side_limit
-MIN_SHORT = 64          # det 短边下限：低于它必须让 PaddleX 放大，见 det_overrides
-PAD_RATIO = 0.35        # find_vertical_text_columns 的 pad_x 比例（相对原始 span）
+PITCH_MIN  = 60.0      # 安全区下界：列距低于此值 → 列间粘连风险 → 放大
+PITCH_MAX  = 120.0     # 安全区上界：列距高于此值 → 碎片风险 → 缩小
+MIN_SCALE  = 0.35      # 绝对保底：不管列距多大，压缩后长边 ≥ 原长边 × 35%
+FLAT_LIMIT = 1600      # 估不出列距时的兜底（手写全集总分最高的定值）
+MIN_LIMIT  = 64        # PaddleOCR 自身下限
+MAX_LIMIT  = 4000      # PaddleX max_side_limit
+MIN_SHORT  = 64        # det 短边下限：低于它必须让 PaddleX 放大，见 det_overrides
+PAD_RATIO  = 0.35      # find_vertical_text_columns 的 pad_x 比例（相对原始 span）
 
 
 def _flag(name, default="1"):
@@ -73,10 +75,21 @@ def column_pitch(columns):
 
 
 def scale_for(pitch):
-    """原图 → det 输入的缩放比。≤0 表示估不出列距。永不放大（1.0 封顶）。"""
+    """原图 → det 输入的缩放比。≤0 表示估不出列距（走 FLAT_LIMIT 兜底）。
+
+    策略：安全区间 [PITCH_MIN, PITCH_MAX]。在区间内不缩放（scale=1.0）；
+    高于上界按上界缩小；低于下界按下界放大。所有缩放均受 MIN_SCALE 和 1.0 夹持。
+    """
     if not pitch or pitch <= 0:
         return 0.0
-    return min(1.0, _num("SHUPAI_DET_TARGET_PITCH", TARGET_PITCH) / float(pitch))
+    pitch_min = _num("SHUPAI_DET_PITCH_MIN", PITCH_MIN)
+    pitch_max = _num("SHUPAI_DET_PITCH_MAX", PITCH_MAX)
+    min_scale = _num("SHUPAI_DET_MIN_SCALE", MIN_SCALE)
+    if pitch < pitch_min:
+        return min(1.0, pitch_min / float(pitch))
+    if pitch > pitch_max:
+        return max(min_scale, pitch_max / float(pitch))
+    return 1.0
 
 
 def det_for_size(size, scale):
