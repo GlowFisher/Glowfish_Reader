@@ -22,7 +22,7 @@ def _cols(centers, width=200):
 
 @pytest.fixture(autouse=True)
 def _clean_env(monkeypatch):
-    for key in ("SHUPAI_DET_ADAPTIVE_SCALE", "SHUPAI_DET_TARGET_PITCH",
+    for key in ("SHUPAI_DET_ADAPTIVE_SCALE", "SHUPAI_DET_PITCH_MAX",
                 "SHUPAI_DET_LIMIT_SIDE_LEN"):
         monkeypatch.delenv(key, raising=False)
 
@@ -50,7 +50,7 @@ def test_large_page_downscales_to_target_pitch():
     scale = det_scale.scale_for(404.0)
     override = det_scale.det_overrides(6786, scale)
     assert override["text_det_limit_type"] == "max"
-    assert 404 * scale == pytest.approx(det_scale.TARGET_PITCH, abs=0.5)
+    assert scale == pytest.approx(det_scale.MIN_SCALE)  # absolute downscale floor wins here
     assert override["text_det_limit_side_len"] == round(6786 * scale)
 
 
@@ -105,6 +105,6 @@ def test_disabling_adaptive_returns_no_override(monkeypatch):
 
 
 def test_target_pitch_is_env_tunable(monkeypatch):
-    monkeypatch.setenv("SHUPAI_DET_TARGET_PITCH", "100")
-    assert 404 * det_scale.scale_for(404.0) == pytest.approx(100.0, abs=0.5)
+    monkeypatch.setenv("SHUPAI_DET_PITCH_MAX", "100")
+    assert 200 * det_scale.scale_for(200.0) == pytest.approx(100.0, abs=0.5)
 

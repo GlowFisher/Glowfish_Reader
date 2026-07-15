@@ -9,9 +9,14 @@ existing OCR engines:
 import argparse
 import atexit
 import json
+import logging
 import os
+import queue
 import subprocess
+from dataclasses import dataclass, field
 import sys
+import threading
+import time
 from pathlib import Path
 
 import det_scale
@@ -19,6 +24,8 @@ import ocr_confusion
 import ocr_enhance
 import ocr_filter
 import ocr_rescue
+import appconfig
+import windows_process
 
 try:
     sys.stdout.reconfigure(encoding="utf-8")
@@ -30,6 +37,26 @@ IMG_EXT = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp"}
 _SUBST_DRIVE = None
 ACTIVE_DEVICE = None      # 实际生效的设备（"gpu:0" / "cpu"），供 ocr_meta 回显
 EXPLICIT_DET_CFG = False  # config 里显式定死 text_det_limit_* → 自适应尺度让位
+@dataclass
+class InferenceBudget:
+    max_extra_predicts: int = 32
+    max_rescue_columns: int = 8
+    max_ensemble_lines: int = 10
+    max_small_text_lines: int = 8
+    soft_time_limit_seconds: float = 120.0
+    extra_predicts: int = 0
+    started_at: float = field(default_factory=time.monotonic)
+    exhausted: bool = False
+
+    def allow(self, count=1):
+        timed_out = time.monotonic() - self.started_at >= self.soft_time_limit_seconds
+        if timed_out or self.extra_predicts + count > self.max_extra_predicts:
+            self.exhausted = True
+            return False
+        self.extra_predicts += count
+        return True
+
+
 
 
 def _is_ascii_path(path):
@@ -42,6 +69,9 @@ def _is_ascii_path(path):
 
 def _ensure_paddlex_env():
     """Set stable local defaults before PaddleOCR/PaddleX is imported."""
+    thread_cap = str(min(os.cpu_count() or 1, 8))
+    os.environ.setdefault("OMP_NUM_THREADS", thread_cap)
+    os.environ.setdefault("MKL_NUM_THREADS", thread_cap)
     os.environ.setdefault("PADDLE_PDX_MODEL_SOURCE", "huggingface")
     os.environ.setdefault("PADDLE_PDX_HUGGING_FACE_ENDPOINT", "https://hf-mirror.com")
     os.environ.setdefault("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", "True")
@@ -49,8 +79,11 @@ def _ensure_paddlex_env():
     os.environ.setdefault("FLAGS_use_mkldnn", "false")
     if os.environ.get("PADDLE_PDX_CACHE_HOME"):
         return
-    root = Path(__file__).resolve().parents[1]
-    cache_rel = Path("proofread") / "_work" / "paddlex_cache"
+    # Keep PaddleX state beside the application data, never beside the executable.
+    # In a frozen install __file__ lives under _internal, so the old relative path
+    # polluted the installation folder.
+    root = Path(appconfig.data_root())
+    cache_rel = Path("paddlex_cache")
     if _is_ascii_path(root):
         os.environ["PADDLE_PDX_CACHE_HOME"] = str(root / cache_rel)
         return
@@ -63,12 +96,12 @@ def _ensure_paddlex_env():
         if Path(drive + "\\").exists():
             continue
         try:
-            subprocess.run(["subst", drive, str(root)], check=True,
-                           capture_output=True, text=True)
+            windows_process.run(["subst", drive, str(root)], purpose="subst",
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             _SUBST_DRIVE = drive
             os.environ["PADDLE_PDX_CACHE_HOME"] = str(Path(drive + "\\") / cache_rel)
-            atexit.register(lambda d=drive: subprocess.run(
-                ["subst", d, "/D"], capture_output=True, text=True))
+            atexit.register(lambda d=drive: windows_process.run(
+                ["subst", d, "/D"], purpose="subst", stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True))
             return
         except Exception:
             continue
@@ -226,9 +259,11 @@ def _predict_path(engine, image_path, det=None):
     return lines
 
 
-def _column_rescue(engine, oriented, pid, norm_dir, columns=None, det_ratio=0.0):
+def _column_rescue(engine, oriented, pid, norm_dir, columns=None, det_ratio=0.0, budget=None):
     rescued = []
     for idx, box in enumerate(columns or ocr_rescue.find_vertical_text_columns(oriented)):
+        if budget is not None and not budget.allow():
+            break
         x1, y1, x2, y2 = box
         crop = ocr_rescue.enhance_for_ocr(oriented.crop((x1, y1, x2, y2)))
         crop_path = Path(norm_dir) / f"{pid}_col_{idx:03d}.jpg"
@@ -240,19 +275,20 @@ def _column_rescue(engine, oriented, pid, norm_dir, columns=None, det_ratio=0.0)
     return rescued
 
 
-def recognize_one(engine, img_path, norm_dir, profile=None):
+def recognize_one(engine, img_path, norm_dir, profile=None, budget=None):
     """Recognize one image after EXIF normalization, returning one page dict.
 
     Full-page OCR is preserved. If recall is suspiciously low, the page is also
     rescanned as right-to-left vertical columns and recovered lines are merged.
 
-    profile='high_accuracy' 时额外叠加 ocr_enhance 的增强层（手写页低阈值二检 /
-    低置信行多预处理投票 / 小字超分重识）。检测尺度自适应两档共用——那是整列漏检的
-    根因修复，不属于"增强"。
+    profile='high_accuracy' 时额外叠加：det 自适应尺度 + 列救援 + 五层后处理增强。
+    轻量版跳过列检测预扫描和自适应尺度——保持纯 PaddleOCR 默认检测参数，速度快。
     """
     from PIL import Image, ImageOps
 
     high = profile == "high_accuracy"
+    if high and budget is None:
+        budget = InferenceBudget()
     pid = Path(img_path).stem
     norm_path = Path(norm_dir) / f"{pid}.jpg"
     ocr_path = Path(norm_dir) / f"{pid}_ocr.jpg"
@@ -261,14 +297,27 @@ def recognize_one(engine, img_path, norm_dir, profile=None):
     oriented.save(norm_path, "JPEG", quality=92)
     ocr_rescue.enhance_for_ocr(oriented).save(ocr_path, "JPEG", quality=92)
 
-    # 列检测提前到整页识别之前：大图原尺寸进 DB 检测器会让笔画松散的列置信度塌陷、整列漏检，
-    # 得先量出列距才能反推该把 det 输入缩到多大。这一趟本来就要跑（下面 rescue 要用），不额外花钱。
-    columns = ocr_rescue.find_vertical_text_columns(oriented)
-    det_pitch = det_scale.column_pitch(columns)
-    det_ratio = 0.0 if EXPLICIT_DET_CFG else det_scale.scale_for(det_pitch)
-    page_det = None if EXPLICIT_DET_CFG else det_scale.det_for_size(oriented.size, det_ratio)
+    columns = []
+    det_pitch = 0.0
+    det_ratio = 0.0
+    page_det = None
+
+    if high:
+        # 列检测提前到整页识别之前。先量出列距反推 det 输入缩放比。
+        columns = ocr_rescue.find_vertical_text_columns(oriented)
+        det_pitch = det_scale.column_pitch(columns)
+        det_ratio = 0.0 if EXPLICIT_DET_CFG else det_scale.scale_for(det_pitch)
+        # 保底：满血版检测分辨率不低于 PaddleOCR 默认（轻量版水平）。
+        # det_scale 对极端列距文档是救命稻草，但中等列距文档可能过度压缩。
+        # max(det_scale, 默认) 确保满血版永不低于轻量版的检测质量。
+        default_scale = min(1.0, 4000.0 / max(oriented.size))
+        if det_ratio > 0:
+            det_ratio = max(det_ratio, default_scale)
+        page_det = None if EXPLICIT_DET_CFG else det_scale.det_for_size(oriented.size, det_ratio)
 
     def predict_crop(path, size):
+        if budget is not None and not budget.allow():
+            return []
         det = None if EXPLICIT_DET_CFG else det_scale.det_for_size(size, det_ratio)
         return _predict_path(engine, path, det)
 
@@ -278,7 +327,7 @@ def recognize_one(engine, img_path, norm_dir, profile=None):
 
     # 层⑤：稀疏/小字页再用低 box_thresh 检一遍（逐调用覆盖，不重建引擎）。
     low_thresh_used = False
-    if high and ocr_enhance.low_thresh_enabled() and ocr_enhance.looks_like_handwriting(lines, width, height):
+    if high and ocr_enhance.low_thresh_enabled() and ocr_enhance.looks_like_handwriting(lines, width, height) and budget.allow():
         try:
             low_lines = _predict_path(engine, ocr_path, ocr_enhance.low_thresh_det(page_det))
             for line in low_lines:
@@ -288,11 +337,14 @@ def recognize_one(engine, img_path, norm_dir, profile=None):
         except Exception as exc:
             print(f"WARN: low-threshold pass failed: {exc!r}", file=sys.stderr)
 
-    low_recall = ocr_rescue.is_low_recall(lines, width, height)
-    rescue_columns = columns if low_recall else ocr_rescue.uncovered_columns(columns, lines)
-    if rescue_columns:
-        lines = list(lines) + _column_rescue(engine, oriented, pid, norm_dir, rescue_columns,
-                                             det_ratio=det_ratio)
+    low_recall = False
+    rescue_columns = []
+    if high and columns:
+        low_recall = ocr_rescue.is_low_recall(lines, width, height)
+        rescue_columns = (columns if low_recall else ocr_rescue.uncovered_columns(columns, lines))[:budget.max_rescue_columns]
+        if rescue_columns:
+            lines = list(lines) + _column_rescue(engine, oriented, pid, norm_dir, rescue_columns,
+                                                 det_ratio=det_ratio, budget=budget)
 
     if high:
         lines = ocr_enhance.prefilter_by_score(lines)
@@ -306,14 +358,18 @@ def recognize_one(engine, img_path, norm_dir, profile=None):
     # 反过来先 annotate 的话，层② 提分救回的行仍顶着旧的 low_conf_noise 身份，
     # 被 proof_model 从正文里剔除——白跑三趟推理，那几列字照样不出现在辑录里。
     if high:
-        ocr_enhance.rescue_small_text(predict_crop, lines, oriented, norm_dir, pid)
         ocr_enhance.enhance_low_confidence_lines(predict_crop, lines, oriented, norm_dir, pid)
+        ocr_enhance.rescue_small_text(predict_crop, lines, oriented, norm_dir, pid)
     if _confusion_enabled():
         ocr_confusion.correct_ocr_lines(lines)
 
-    lines = ocr_filter.annotate_page_lines(lines, width, height, image_path=norm_path)
+    # 轻量版跳过图像像素分析（印章/水印检测 + body_region）：纯文本分类足够，不额外读图。
+    lines = ocr_filter.annotate_page_lines(
+        lines, width, height,
+        image_path=(norm_path if high else None))
 
-    meta = {"body_region": list(ocr_rescue.find_body_region(oriented)),
+    body_region = list(ocr_rescue.find_body_region(oriented)) if high else [0, 0, width, height]
+    meta = {"body_region": body_region,
             "low_recall": low_recall, "columns": len(columns),
             "rescued_columns": len(rescue_columns),
             "det_adaptive": bool(page_det),
@@ -326,7 +382,9 @@ def recognize_one(engine, img_path, norm_dir, profile=None):
             "rec_model": "PP-OCRv6_medium_rec"}
     if high:
         meta.update({"profile": "high_accuracy", "low_thresh_pass": low_thresh_used,
-                     "merge_stats": merge_stats, "quality": ocr_enhance.quality_summary(lines)})
+                     "merge_stats": merge_stats, "quality": ocr_enhance.quality_summary(lines),
+                     "extra_predicts": budget.extra_predicts,
+                     "budget_exhausted": budget.exhausted})
     return {"image": str(norm_path), "width": width, "height": height, "lines": lines,
             "ocr_meta": meta}
 
@@ -355,7 +413,7 @@ def run_job(engine, images, out, progress=None, log=print, config=None):
     for idx, img in enumerate(imgs):
         pid = img.stem
         try:
-            recog[pid] = recognize_one(engine, img, norm_dir, profile=profile)
+            recog[pid] = recognize_one(engine, img, norm_dir, profile=profile, budget=InferenceBudget() if profile == "high_accuracy" else None)
             log(f"  {pid}: {len(recog[pid]['lines'])} lines "
                 f"({recog[pid]['width']}x{recog[pid]['height']})")
         except Exception as exc:
@@ -404,8 +462,10 @@ def serve_worker(config=None):
         line = line.strip()
         if not line:
             continue
+        job_id = None
         try:
             job = json.loads(line)
+            job_id = job.get("job_id")
             cfg = job.get("config") or {}
             if cfg != config:
                 engine = _build_engine(cfg)
@@ -413,14 +473,14 @@ def serve_worker(config=None):
             pages, nfail = run_job(
                 engine, job["images"], job["out"], job.get("progress"), log=log, config=config
             )
-            _emit({"event": "result", "ok": True, "out": job["out"], "pages": pages, "failed": nfail})
+            _emit({"event": "result", "ok": True, "job_id": job_id,
+                   "out": job["out"], "pages": pages, "failed": nfail})
         except Exception as exc:
-            _emit({"event": "result", "ok": False, "error": repr(exc)})
+            _emit({"event": "result", "ok": False, "job_id": job_id, "error": repr(exc)})
     return 0
 
 class OcrWorker:
     def __init__(self, argv_prefix, env=None, model_type="ppocrv6_onnx", config=None):
-        import threading
         self.argv = list(argv_prefix) + ["--serve-worker"]
         if config:
             self.argv += ["--worker-config", json.dumps(config, ensure_ascii=False)]
@@ -428,47 +488,75 @@ class OcrWorker:
         self.model_type = model_type
         self._lock = threading.Lock()
         self._p = None
+        self._events = queue.Queue()
+        self._threads = []
+        self._logger = logging.getLogger("glowfish.ocr.worker")
+
+    @property
+    def pid(self):
+        return self._p.pid if self._p is not None else None
 
     def start(self):
-        import subprocess
-        self._p = subprocess.Popen(
-            self.argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL, env=self.env, text=True,
-            encoding="utf-8", errors="replace", bufsize=1)
-        msg = self._read_event()
+        started = time.monotonic()
+        self._p = windows_process.spawn(
+            self.argv, purpose="worker", stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=self.env,
+            text=True, encoding="utf-8", errors="replace", bufsize=1)
+        self._threads = [
+            threading.Thread(target=self._pump_stdout, name="ocr-worker-stdout", daemon=True),
+            threading.Thread(target=self._pump_stderr, name="ocr-worker-stderr", daemon=True),
+        ]
+        for thread in self._threads:
+            thread.start()
+        msg = self._read_event(timeout=120.0)
         if not (msg and msg.get("event") == "ready" and msg.get("ok")):
             self.close()
             raise RuntimeError(f"worker not ready: {msg}")
+        self._logger.info("Worker ready pid=%s elapsed=%.3fs", self.pid, time.monotonic() - started)
         return self
 
     def alive(self):
         return self._p is not None and self._p.poll() is None
 
-    def _read_event(self):
+    def _pump_stdout(self):
         p = self._p
         if p is None or p.stdout is None:
-            return None
+            return
         for line in p.stdout:
             line = line.rstrip("\n")
             if line.startswith(SENTINEL):
                 try:
-                    return json.loads(line[len(SENTINEL):])
+                    self._events.put(json.loads(line[len(SENTINEL):]))
                 except Exception:
-                    return None
-        return None
+                    self._events.put(None)
 
-    def submit(self, images, out, progress=None, config=None):
+    def _pump_stderr(self):
+        p = self._p
+        if p is None or p.stderr is None:
+            return
+        for line in p.stderr:
+            self._logger.error("pid=%s %s", p.pid, line.rstrip())
+
+    def _read_event(self, timeout=120.0):
+        try:
+            return self._events.get(timeout=timeout)
+        except queue.Empty as exc:
+            raise TimeoutError(f"worker response timeout after {timeout}s") from exc
+
+    def submit(self, images, out, progress=None, config=None, job_id=None):
         with self._lock:
             if not self.alive():
                 raise RuntimeError("worker is not running")
             job = {"images": str(images), "out": str(out),
                    "progress": str(progress) if progress else None,
-                   "config": config or {}}
+                   "config": config or {}, "job_id": job_id}
             self._p.stdin.write(json.dumps(job, ensure_ascii=False) + "\n")
             self._p.stdin.flush()
-            msg = self._read_event()
+            msg = self._read_event(timeout=3600.0)
             if not msg or msg.get("event") != "result":
                 raise RuntimeError(f"worker protocol error: {msg}")
+            if msg.get("job_id") != job_id:
+                raise RuntimeError(f"worker response job mismatch: {msg.get('job_id')} != {job_id}")
             if not msg.get("ok"):
                 raise RuntimeError(f"worker OCR failed: {msg.get('error')}")
             return msg
@@ -482,10 +570,7 @@ class OcrWorker:
                 p.stdin.close()
         except Exception:
             pass
-        try:
-            p.terminate()
-        except Exception:
-            pass
+        windows_process.terminate_process(p)
 
 def main():
     if "--serve-worker" in sys.argv:
