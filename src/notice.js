@@ -129,7 +129,7 @@ async function gfLoadNotices(options = {}) {
   if (gfNoticeLoading) return gfNoticeItems;
   gfNoticeLoading = true;
   try {
-    const resp = await fetch("/api/notices", { cache: "no-store" });
+    const resp = await GlowfishApi.reader.noticesRaw();
     const data = await resp.json();
     gfNoticeItems = Array.isArray(data.notices) ? data.notices : [];
     gfRenderNotices();

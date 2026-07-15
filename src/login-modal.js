@@ -19,30 +19,7 @@
   // 原生 fetch 快照（早于 auth-guard 包装）
   const rawFetch = window.fetch.bind(window);
 
-  // ========================== Api 层 ==========================
-  // 唯一后端出口。所有 endpoint / 入参 / 返回契约在此登记，供后端对接。
-  async function post(url, data) {
-    const r = await rawFetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
-    });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error((j && j.detail) || r.statusText || "请求失败，请重试");
-    return j;
-  }
-  const Api = {
-    // 登录：POST /api/login  {phone, password} -> {ok, user}（成功后服务端下发会话 cookie）
-    login: (phone, password) => post("/api/login", { phone, password }),
-    // 发送短信验证码：POST /api/sms/send  {phone, scene:"register"|"reset"} -> {ok[, dev_code]}
-    sendSms: (phone, scene) => post("/api/sms/send", { phone, scene }),
-    // 注册：POST /api/register  {phone, code, password} -> {ok[, logged_in]}
-    //   云模式返 logged_in=true（服务器已下发凭据）→ 直接 reload 进主界面；
-    //   本机模式无该字段 → 回登录视图手动登录。
-    register: (phone, code, password) => post("/api/register", { phone, code, password }),
-    // 找回密码：POST /api/password/reset  {phone, code, password} -> {ok}
-    resetPassword: (phone, code, password) => post("/api/password/reset", { phone, code, password }),
-  };
+  const Api = window.GlowfishApi.account;
 
   // ======================= Validate 层 ========================
   // 纯函数，返回 {ok:boolean, msg:string}。前端体验层校验，后端须二次校验。

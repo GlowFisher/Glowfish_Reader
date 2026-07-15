@@ -2,13 +2,13 @@
 from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_import_engine_switch_uses_shared_preference_helpers_and_modal_scope():
-    settings = (ROOT / "static" / "settings.js").read_text(encoding="utf-8")
-    html = (ROOT / "static" / "index.html").read_text(encoding="utf-8")
-    css = (ROOT / "static" / "style.css").read_text(encoding="utf-8")
+    settings = (ROOT / "src" / "settings.js").read_text(encoding="utf-8")
+    html = (ROOT / "src" / "index.html").read_text(encoding="utf-8")
+    css = (ROOT / "src" / "style.css").read_text(encoding="utf-8")
 
     assert '["ppocrv6_onnx", "\u5feb\u901f\u7248"]' in settings
     assert "function setEnginePreference(value)" in settings

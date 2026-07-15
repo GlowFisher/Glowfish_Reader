@@ -2,11 +2,11 @@
 from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def read_static(name):
-    return (ROOT / "static" / name).read_text(encoding="utf-8")
+    return (ROOT / "src" / name).read_text(encoding="utf-8")
 
 
 def test_auth_guard_does_not_suppress_login_for_single_mode():

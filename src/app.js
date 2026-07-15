@@ -9,11 +9,6 @@ const TEXT_UNDO_MERGE_MS = 800; // 连续文本输入在短暂停顿内合并为
 const IMPORT_POLL_MS = 350;     // 导入进度轮询间隔
 
 const $ = (s) => document.querySelector(s);
-const api = async (url, opts) => {
-  const r = await fetch(url, opts);
-  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
-  return r.json();
-};
 // toast(m) 纯文本；toast(m,{label,fn,ms}) 带操作按钮（如导出后「打开所在文件夹」），停留更久。
 const toast = (m, opts) => {
   const t = $("#toast");
@@ -380,8 +375,7 @@ async function browserSaveExport(fname, blob) {
 }
 
 async function downloadExport(body) {                    // 单次导出：POST /api/export → 桌面原生保存；浏览器保存选择；最后降级 Downloads
-  const r = await fetch("/api/export", { method: "POST",
-    headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const r = await GlowfishApi.export.download(body);
   if (!r.ok) {
     let detail = r.statusText;
     try { detail = (await r.json()).detail || detail; } catch (_) {}

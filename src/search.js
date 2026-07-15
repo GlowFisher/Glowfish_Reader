@@ -52,7 +52,7 @@ async function runSearch() {
 
   let resp;
   try {
-    resp = await fetch("/api/library_search", {
+    resp = await GlowfishApi.reader.searchRaw({
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ query: q }),

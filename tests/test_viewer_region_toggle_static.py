@@ -5,15 +5,11 @@ import subprocess
 import pytest
 
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def read_static(name):
-    return (ROOT / "static" / name).read_text(encoding="utf-8")
-
-
-def read_app(name):
-    return (ROOT / name).read_text(encoding="utf-8")
+    return (ROOT / "src" / name).read_text(encoding="utf-8")
 
 
 def test_core_static_javascript_is_parseable():
@@ -22,7 +18,7 @@ def test_core_static_javascript_is_parseable():
         pytest.skip("node is not available")
     for name in ("importer.js", "notebook.js"):
         result = subprocess.run(
-            [node, "--check", str(ROOT / "static" / name)],
+            [node, "--check", str(ROOT / "src" / name)],
             text=True,
             capture_output=True,
             check=False,
@@ -41,7 +37,6 @@ def test_boxes_hidden_by_default_and_region_ocr_does_not_require_toggle():
     viewer = read_static("viewer.js")
     css = read_static("style.css")
     assert "show_boxes: false" in settings
-    assert '"show_boxes": False' in read_app("settings_store.py")
     # 框选只由 #boxToggle 按钮开的模式驱动（按钮文案即契约），Alt 不是快捷键。
     assert "if (regionSelectMode && !eraseMode)" in viewer
     assert "e.altKey && boxesVisible()" not in viewer
