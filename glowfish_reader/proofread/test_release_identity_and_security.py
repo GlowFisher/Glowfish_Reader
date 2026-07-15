@@ -1,4 +1,6 @@
 # -*- coding: utf-8 -*-
+import hashlib
+import json
 import os
 import subprocess
 import sys
@@ -59,9 +61,16 @@ def test_release_fix_selftest_passes_from_source():
 def _clean_payload(tmp_path, monkeypatch):
     product = PRODUCT
     internal = tmp_path / "_internal"
-    (internal / "static").mkdir(parents=True)
+    ui_dist = internal / "ui_dist"
+    ui_dist.mkdir(parents=True)
     (internal / "models" / "ppocrv6_onnx").mkdir(parents=True)
-    (internal / "static" / "index.html").write_text("ok", encoding="utf-8")
+    index = ui_dist / "index.html"
+    index.write_text("ok", encoding="utf-8")
+    (ui_dist / "manifest.json").write_text(json.dumps({
+        "schema_version": 1,
+        "files": [{"path": "index.html", "bytes": index.stat().st_size, "sha256": hashlib.sha256(index.read_bytes()).hexdigest()}],
+    }), encoding="utf-8")
+    (internal / "component-manifest.json").write_text(json.dumps({"schema_version": 1}), encoding="utf-8")
     (internal / "sku.txt").write_text("single", encoding="utf-8")
     (tmp_path / f"{product}.exe").write_bytes(b"MZ")
     fake_pyz = SimpleNamespace(toc={"desktop_app": None, "export_api": None})

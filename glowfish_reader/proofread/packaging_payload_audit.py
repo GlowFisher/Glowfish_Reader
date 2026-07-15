@@ -2,6 +2,8 @@
 """Fail a release when the frozen client payload contains development or secret material."""
 from __future__ import annotations
 
+import hashlib
+import json
 import sys
 from pathlib import Path
 
@@ -49,12 +51,32 @@ def audit_payload(dist_dir: Path, product_name: str) -> list[str]:
 
     required = (
         dist_dir / "_internal" / "sku.txt",
-        dist_dir / "_internal" / "static" / "index.html",
+        dist_dir / "_internal" / "ui_dist" / "index.html",
+        dist_dir / "_internal" / "ui_dist" / "manifest.json",
+        dist_dir / "_internal" / "component-manifest.json",
         dist_dir / "_internal" / "models" / "ppocrv6_onnx",
     )
     for path in required:
         if not path.exists():
             errors.append(f"required runtime asset missing: {path.relative_to(dist_dir)}")
+    ui_manifest_path = dist_dir / "_internal" / "ui_dist" / "manifest.json"
+    if ui_manifest_path.is_file():
+        try:
+            ui_manifest = json.loads(ui_manifest_path.read_text(encoding="utf-8"))
+            for item in ui_manifest.get("files", []):
+                asset = ui_manifest_path.parent / item["path"]
+                if not asset.is_file() or asset.stat().st_size != item["bytes"] or hashlib.sha256(asset.read_bytes()).hexdigest() != item["sha256"]:
+                    errors.append(f"UI manifest hash mismatch: {item.get('path')}")
+        except Exception as exc:
+            errors.append(f"invalid UI payload manifest: {exc}")
+    component_manifest = dist_dir / "_internal" / "component-manifest.json"
+    if component_manifest.is_file():
+        try:
+            if json.loads(component_manifest.read_text(encoding="utf-8")).get("schema_version") != 1:
+                errors.append("unsupported embedded component manifest schema")
+        except Exception as exc:
+            errors.append(f"invalid embedded component manifest: {exc}")
+
     sku = dist_dir / "_internal" / "sku.txt"
     if sku.is_file() and sku.read_text(encoding="utf-8").strip().casefold() != "single":
         errors.append("sku.txt is not locked to single")
