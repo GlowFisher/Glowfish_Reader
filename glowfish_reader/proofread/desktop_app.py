@@ -16,6 +16,7 @@
 import os
 import sys
 from pathlib import Path
+from _version import __version__
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
@@ -341,7 +342,7 @@ def run():
             except Exception:
                 return False
 
-    win = webview.create_window("Glowfish Reader V1.0.0", f"http://{host}:{port}/",
+    win = webview.create_window(f"Glowfish Reader V{__version__}", f"http://{host}:{port}/",
                                 width=1280, height=860, min_size=(960, 640), js_api=_Api())
 
     def _shutdown_for_update():
