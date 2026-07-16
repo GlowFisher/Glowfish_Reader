@@ -14,11 +14,26 @@ import content_api
 import export_api
 import library_api
 import notice_api
+import ocr_component_runtime
 import ui_assets
 import update_api
 
 
 (appconfig.data_root() / "users").mkdir(parents=True, exist_ok=True)
+
+
+def _configure_ocr_runtime():
+    if ocr_component_runtime.component_runtime_enabled():
+        content_api.configure_ocr_engine_runner(
+            ocr_component_runtime.ComponentOcrEngineRunner()
+        )
+        return "component"
+    content_api.configure_ocr_engine_runner(None)
+    return "legacy"
+
+
+OCR_RUNTIME = _configure_ocr_runtime()
+
 
 app = create_app(
     AppComponents(

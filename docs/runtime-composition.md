@@ -38,3 +38,16 @@ to the preserved legacy implementation after partial output cleanup.
 
 Engine selection, lightweight fallback order, cache validation, atomic job execution,
 and progress reporting remain owned by `content_api` until a later component cutover.
+
+### Public component canary
+
+Set `GLOWFISH_OCR_COMPONENT_RUNTIME=1` before starting the V2 entry to route each
+single-engine attempt through `glowfish_ocr.SubprocessOcrService.recognize_exact()`.
+The adapter retains Host-managed child-process registration, cancellation metadata,
+timeouts, hidden Windows processes, and shutdown cleanup. Component failures return to
+the legacy runner through the existing migration seam.
+
+The canary is disabled by default because the component path currently uses one-shot
+processes and has not yet reached resident-worker performance parity. Source development
+also requires `python -m pip install --no-deps -e components/ocr`; PyInstaller includes
+the pinned component package directly through `OCR_SRC`.

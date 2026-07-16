@@ -23,6 +23,7 @@ HOST_ROOT = os.path.dirname(ROOT)
 HOST_SRC = os.path.join(HOST_ROOT, "src")
 UI_DIST = os.path.join(HOST_ROOT, "components", "ui", "dist")
 OCR_COMPONENT = os.path.join(HOST_ROOT, "components", "ocr")
+OCR_SRC = os.path.join(OCR_COMPONENT, "src")
 MODELS_DIR = os.environ.get("GLOWFISH_OCR_MODELS") or os.path.join(HERE, "models")
 PRODUCT_DISPLAY_NAME = f"Glowfish Reader V{__version__}"
 
@@ -33,7 +34,9 @@ hiddenimports = []
 # 本地业务模块（部分在函数内条件 import / 经 sys.path 插入后导入，静态分析会漏，显式声明）
 hiddenimports += [
     "glowfish_host", "glowfish_host.app", "glowfish_host.services", "server_v2",
+    "glowfish_ocr", "glowfish_ocr.contracts", "glowfish_ocr.registry", "glowfish_ocr.service",
     "server", "appconfig", "runtime_logging", "auth", "auth_api", "content_api", "export_api",
+    "ocr_component_runtime",
     "library_api", "userctx", "safefs", "settings_store", "engines", "ingest",
     "proof_model", "t2s_fixes", "punctuate_local", "recognize", "recognize_ppocrv6",
     "recognize_ppocrv6_onnx", "build_docx",
@@ -109,7 +112,7 @@ for _dist_name in BUNDLE_METADATA_DISTRIBUTIONS:
 
 a = Analysis(
     ["desktop_app.py"],
-    pathex=[HERE, ROOT, PIPELINE, HOST_SRC],
+    pathex=[HERE, ROOT, PIPELINE, HOST_SRC, OCR_SRC],
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,

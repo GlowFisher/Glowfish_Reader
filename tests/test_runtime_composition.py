@@ -51,3 +51,6 @@ def test_v2_entry_injects_legacy_routers_without_owning_them():
     assert "StaticFiles" not in entry
     assert "ui_dist=ui_assets.ui_dist()" in entry
     assert "shutdown_hooks=(content_api.shutdown_ocr,)" in entry
+    assert "ocr_component_runtime.component_runtime_enabled()" in entry
+    assert "ocr_component_runtime.ComponentOcrEngineRunner()" in entry
+    assert "content_api.configure_ocr_engine_runner(None)" in entry
