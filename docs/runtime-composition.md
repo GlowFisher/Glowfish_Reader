@@ -27,3 +27,14 @@ pinned UI component's deterministic `dist` manifest.
 
 Revert the two `desktop_app.py` imports from `server_v2` to `server`. No document,
 account, OCR model, or HTTP contract migration is involved in this slice.
+
+## OCR migration seam
+
+`content_api.configure_ocr_engine_runner()` provides a startup-time injection point
+for one resolved OCR engine attempt. With no configured runner, the current resident
+worker and one-shot subprocess implementation remains unchanged. A configured runner
+may return `False` to decline an attempt; exceptions and missing output also fall back
+to the preserved legacy implementation after partial output cleanup.
+
+Engine selection, lightweight fallback order, cache validation, atomic job execution,
+and progress reporting remain owned by `content_api` until a later component cutover.

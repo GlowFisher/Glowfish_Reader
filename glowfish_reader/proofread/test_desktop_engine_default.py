@@ -37,7 +37,7 @@ def test_start_server_does_not_force_onnx(monkeypatch):
 
     monkeypatch.setitem(os.environ, "SHUPAI_OPEN_BROWSER", "1")
     monkeypatch.setitem(__import__("sys").modules, "uvicorn", FakeUvicorn)
-    monkeypatch.setitem(__import__("sys").modules, "server", type("S", (), {"app": object()}))
+    monkeypatch.setitem(__import__("sys").modules, "server_v2", type("S", (), {"app": object()}))
     monkeypatch.setattr("threading.Thread", FakeThread)
 
     server, host, port = desktop_app._start_server()

@@ -42,6 +42,20 @@ _WORKER_IDLE_TIMER = None
 _WORKER = None
 _WORKER_LOCK = threading.Lock()
 _CUR_ENGINE = {"name": None}
+_OCR_ENGINE_RUNNER = None
+
+
+def configure_ocr_engine_runner(runner=None):
+    """Install an optional single-engine runner and return the previous runner.
+
+    Returning ``False`` or raising delegates the same engine attempt to the
+    preserved legacy implementation.
+    """
+    global _OCR_ENGINE_RUNNER
+    if runner is not None and not callable(runner):
+        raise TypeError("OCR engine runner must be callable or None")
+    previous, _OCR_ENGINE_RUNNER = _OCR_ENGINE_RUNNER, runner
+    return previous
 
 _UP_EXT = (".jpg", ".jpeg", ".png", ".pdf")     # 娑撳﹣绱堕惂钘夋倳閸?
 
@@ -150,7 +164,7 @@ def shutdown_ocr():
     windows_process.shutdown_all()
 
 
-def _run_engine(ctx: Ctx, image_dir: Path, recog_path: Path, engine: str, job=None):
+def _run_engine_legacy(ctx: Ctx, image_dir: Path, recog_path: Path, engine: str, job=None):
     eng2, prefix, params = engines.resolve_engine(engine)
     _CUR_ENGINE["name"] = eng2
     progress_path = job.progress_path if job is not None else ctx.progress_path
@@ -183,6 +197,32 @@ def _run_engine(ctx: Ctx, image_dir: Path, recog_path: Path, engine: str, job=No
                             encoding="utf-8", errors="replace")
     if r.returncode != 0 or not recog_path.exists():
         raise RuntimeError(f"Recognition failed (engine {eng2}):\n{r.stdout}\n{r.stderr}")
+
+
+def _run_engine(ctx: Ctx, image_dir: Path, recog_path: Path, engine: str, job=None):
+    """Run one engine attempt through an injected port with legacy fallback."""
+    runner = _OCR_ENGINE_RUNNER
+    if runner is not None:
+        try:
+            handled = runner(
+                ctx=ctx,
+                image_dir=image_dir,
+                recog_path=recog_path,
+                engine=engine,
+                job=job,
+            )
+            if handled is not False:
+                if not recog_path.exists():
+                    raise RuntimeError("configured OCR runner produced no output")
+                return
+            _LOG.info("Configured OCR runner declined engine=%s; using legacy runtime", engine)
+        except Exception:
+            _LOG.exception("Configured OCR runner failed engine=%s; using legacy runtime", engine)
+        try:
+            recog_path.unlink(missing_ok=True)
+        except OSError:
+            _LOG.warning("Could not discard injected OCR output before legacy fallback: %s", recog_path)
+    return _run_engine_legacy(ctx, image_dir, recog_path, engine, job=job)
 
 
 
