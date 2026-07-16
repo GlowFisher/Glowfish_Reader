@@ -51,6 +51,8 @@ if (-not $py) { $py = $env:GLOWFISH_BUILD_PYTHON }
 if (-not $py) { $py = Join-Path $here "..\.venv\Scripts\python.exe" }
 if (-not (Test-Path $py)) { throw "build python not found: $py (pass -Python or set GLOWFISH_BUILD_PYTHON)" }
 $hostRoot = (Resolve-Path (Join-Path $here "..\..")).Path
+$workspaceRoot = $env:GLOWFISH_WORKSPACE_ROOT
+if (-not $workspaceRoot) { $workspaceRoot = Split-Path $hostRoot -Parent }
 if (-not $BuildRoot) { $BuildRoot = $env:GLOWFISH_BUILD_ROOT }
 if (-not $BuildRoot) { $BuildRoot = Join-Path ([IO.Path]::GetPathRoot($hostRoot)) "GlowfishBuild\release" }
 $workPath = Join-Path $BuildRoot "work"
@@ -58,18 +60,18 @@ $distPath = Join-Path $BuildRoot "dist"
 if (-not $OutputDir) { $OutputDir = Join-Path $BuildRoot "artifacts" }
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 if ((Join-Path $distPath "glowfish_reader\_internal\onnxruntime\tools\ort_format_model\ort_flatbuffers_py\fbs\RuntimeOptimizationRecordContainerEntry.py").Length -ge 248) { throw "BuildRoot is too long for Windows packaging: $BuildRoot" }
-$uiRoot = Join-Path $hostRoot "components\ui"
+$uiRoot = Join-Path $workspaceRoot "ui"
 $npm = (Get-Command npm.cmd -ErrorAction SilentlyContinue).Source
 if (-not $npm) { throw "npm.cmd not found; cannot build pinned UI component" }
 Write-Host "[release] validating pinned component graph ..."
-& $py (Join-Path $hostRoot "scripts\validate_components.py")
-if ($LASTEXITCODE -ne 0) { throw "component manifest validation FAILED ($LASTEXITCODE)" }
+& $py (Join-Path $workspaceRoot "scripts\validate_workspace.py")
+if ($LASTEXITCODE -ne 0) { throw "workspace validation FAILED ($LASTEXITCODE)" }
 Push-Location $uiRoot
 try {
   & $npm run build
   if ($LASTEXITCODE -ne 0) { throw "UI deterministic build FAILED ($LASTEXITCODE)" }
 } finally { Pop-Location }
-& $py (Join-Path $hostRoot "scripts\verify_release_assets.py")
+& $py (Join-Path $workspaceRoot "scripts\verify_release_assets.py")
 if ($LASTEXITCODE -ne 0) { throw "component asset verification FAILED ($LASTEXITCODE)" }
 Write-Host "[release] running packaging preflight ..."
 & $py (Join-Path $here "packaging_preflight.py")
