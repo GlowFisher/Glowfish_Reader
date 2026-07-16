@@ -17,3 +17,23 @@ def test_desktop_exposes_structured_ocr_runtime_benchmark():
     root = Path(__file__).resolve().parents[1]
     desktop = (root / "glowfish_reader" / "proofread" / "desktop_app.py").read_text(encoding="utf-8")
     assert 'if arg1 == "--benchmark-ocr-runtime":' in desktop
+    assert "benchmark_main(sys.argv[2:])" in desktop
+
+
+def test_pyinstaller_excludes_development_only_ml_toolchains():
+    root = Path(__file__).resolve().parents[1]
+    spec = (root / "glowfish_reader" / "proofread" / "glowfish_reader.spec").read_text(encoding="utf-8")
+    assert "PACKAGING_EXCLUDES = [" in spec
+    for package in (
+        '"torch"', '"transformers"',
+        '"onnxruntime.tools"', '"onnxruntime.transformers"',
+    ):
+        assert package in spec
+    assert "excludes=PACKAGING_EXCLUDES" in spec
+    assert "_EXCLUDED_MODULE_PREFIXES" in spec
+    assert "name.startswith(prefix + \".\")" in spec
+    assert '"/onnxruntime/tools/" in combined' in spec
+    assert '"/onnxruntime/transformers/" in combined' in spec
+    assert 'part.startswith("torch-") and part.endswith(".dist-info")' in spec
+    assert "final_datas = [item for item in a.datas if _keep_packaging_item(item)]" in spec
+    assert "exe, final_binaries, final_datas" in spec

@@ -98,18 +98,48 @@ for pkg in ("paddleocr", "paddlex", "opencc", "onnxruntime", "nacl",
 hiddenimports += collect_submodules("uvicorn")   # 协议/loop 动态加载
 datas += collect_data_files("docx")              # python-docx 默认模板
 
-# 精简：剔除未用的大模型
-def _keep(item):
-    return not str(item[0]).lower().endswith("_server.onnx")
-
-datas = [d for d in datas if _keep(d)]
-binaries = [b for b in binaries if _keep(b)]
 
 # PaddleX 用 importlib.metadata 判断依赖是否安装；只有模块/DLL 而没有
 # .dist-info 仍会报 DependencyError。copy_metadata() 必须加入 datas，
 # 不能作为 Analysis 的未知关键字参数传入（PyInstaller 会静默忽略）。
 for _dist_name in BUNDLE_METADATA_DISTRIBUTIONS:
     datas += copy_metadata(_dist_name)
+
+# Runtime uses pre-exported ONNX models. Training/export frameworks and ONNX Runtime's
+# conversion/benchmark toolchains are development-only and otherwise pull hundreds of
+# megabytes of Torch, Transformers, ModelScope, and their transitive modules.
+PACKAGING_EXCLUDES = [
+    "tkinter",
+    "matplotlib",
+    "paddle",
+    "torch",
+    "transformers",
+    "onnxruntime.tools",
+    "onnxruntime.transformers",
+]
+
+_EXCLUDED_MODULE_PREFIXES = ("torch", "transformers", "onnxruntime.tools", "onnxruntime.transformers")
+hiddenimports = [
+    name for name in hiddenimports
+    if not any(name == prefix or name.startswith(prefix + ".") for prefix in _EXCLUDED_MODULE_PREFIXES)
+]
+
+
+def _keep_packaging_item(item):
+    source, destination = (str(value).replace("\\", "/").lower() for value in item[:2])
+    combined = f"/{source}/{destination}/"
+    if source.endswith("_server.onnx"):
+        return False
+    if "/onnxruntime/tools/" in combined or "/onnxruntime/transformers/" in combined:
+        return False
+    for part in source.split("/") + destination.split("/"):
+        if part.startswith("torch-") and part.endswith(".dist-info"):
+            return False
+    return True
+
+
+datas = [item for item in datas if _keep_packaging_item(item)]
+binaries = [item for item in binaries if _keep_packaging_item(item)]
 
 a = Analysis(
     ["desktop_app.py"],
@@ -119,7 +149,7 @@ a = Analysis(
     hiddenimports=hiddenimports,
     hookspath=[],
     runtime_hooks=[],
-    excludes=["tkinter", "matplotlib", "paddle"],
+    excludes=PACKAGING_EXCLUDES,
     noarchive=False,
 )
 pyz = PYZ(a.pure)
@@ -132,7 +162,9 @@ exe = EXE(
     icon=os.path.join(HERE, "assets", "glowfish.ico"),   # 商标：与 glowfish 图库同一标识（多尺寸 ico）→ 任务栏/快捷方式/explorer
     version=os.path.join(HERE, "version_info.txt"),
 )
+final_binaries = [item for item in a.binaries if _keep_packaging_item(item)]
+final_datas = [item for item in a.datas if _keep_packaging_item(item)]
 coll = COLLECT(
-    exe, a.binaries, a.datas,
+    exe, final_binaries, final_datas,
     name="glowfish_reader",
 )
