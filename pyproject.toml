@@ -10,7 +10,7 @@ requires-python = ">=3.12"
 dependencies = ["fastapi", "uvicorn"]
 license = {text = "Proprietary"}
 [project.optional-dependencies]
-test = ["pytest", "psutil", "httpx2"]
+test = ["pytest", "psutil", "httpx2", "python-docx"]
 
 
 [tool.setuptools]
