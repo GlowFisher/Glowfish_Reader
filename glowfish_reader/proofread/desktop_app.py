@@ -99,7 +99,7 @@ def _start_server():
     os.environ["SHUPAI_OPEN_BROWSER"] = "0"
     import threading
     import uvicorn
-    from server import app
+    from server_v2 import app
     host, port = "127.0.0.1", _free_port()
     server = uvicorn.Server(uvicorn.Config(app, host=host, port=port, log_level="warning"))
     threading.Thread(target=server.run, daemon=True).start()
@@ -381,7 +381,7 @@ def _serve_headless():
     os.environ.setdefault("SHUPAI_MODE", "single")
     os.environ["SHUPAI_OPEN_BROWSER"] = "0"
     import uvicorn
-    from server import app
+    from server_v2 import app
     port = int(sys.argv[2]) if len(sys.argv) > 2 else 8799
     host = sys.argv[3] if len(sys.argv) > 3 else "127.0.0.1"
     print(f"SERVE http://{host}:{port}/")

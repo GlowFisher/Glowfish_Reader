@@ -24,10 +24,15 @@ def create_app(components: AppComponents) -> FastAPI:
         raise FileNotFoundError(f"built UI manifest missing: {manifest}")
 
     app = FastAPI(title="Glowfish Reader")
+
+    @app.get("/health")
+    def health() -> dict[str, bool]:
+        return {"ok": True}
+
     for hook in components.startup_hooks:
-        app.add_event_handler("startup", hook)
+        app.router.add_event_handler("startup", hook)
     for hook in components.shutdown_hooks:
-        app.add_event_handler("shutdown", hook)
+        app.router.add_event_handler("shutdown", hook)
     for router in components.routers:
         app.include_router(router)
     app.mount("/", StaticFiles(directory=str(ui_dist), html=True), name="ui")

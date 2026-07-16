@@ -20,6 +20,7 @@ HERE = os.path.abspath(os.getcwd())          # 在 proofread/ 下运行 pyinstal
 ROOT = os.path.dirname(HERE)
 PIPELINE = os.path.join(ROOT, "pipeline")   # ../pipeline（build_docx 在此）
 HOST_ROOT = os.path.dirname(ROOT)
+HOST_SRC = os.path.join(HOST_ROOT, "src")
 UI_DIST = os.path.join(HOST_ROOT, "components", "ui", "dist")
 OCR_COMPONENT = os.path.join(HOST_ROOT, "components", "ocr")
 MODELS_DIR = os.environ.get("GLOWFISH_OCR_MODELS") or os.path.join(HERE, "models")
@@ -31,6 +32,7 @@ hiddenimports = []
 
 # 本地业务模块（部分在函数内条件 import / 经 sys.path 插入后导入，静态分析会漏，显式声明）
 hiddenimports += [
+    "glowfish_host", "glowfish_host.app", "glowfish_host.services", "server_v2",
     "server", "appconfig", "runtime_logging", "auth", "auth_api", "content_api", "export_api",
     "library_api", "userctx", "safefs", "settings_store", "engines", "ingest",
     "proof_model", "t2s_fixes", "punctuate_local", "recognize", "recognize_ppocrv6",
@@ -107,7 +109,7 @@ for _dist_name in BUNDLE_METADATA_DISTRIBUTIONS:
 
 a = Analysis(
     ["desktop_app.py"],
-    pathex=[HERE, ROOT, PIPELINE],
+    pathex=[HERE, ROOT, PIPELINE, HOST_SRC],
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,

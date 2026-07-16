@@ -1,0 +1,29 @@
+# V2 runtime composition
+
+The packaged desktop application now imports `server_v2`, which delegates FastAPI
+assembly to the public `glowfish_host.create_app` factory. Existing flat routers are
+injected as compatibility adapters; they are no longer responsible for creating the
+application or mounting UI assets.
+
+`server.py` remains unchanged as the explicit V1-compatible rollback entry during the
+incremental cutover.
+
+## Source development
+
+Install the Host package before starting the V2 entry from source:
+
+```powershell
+python -m pip install --no-deps -e .
+python .\glowfish_reader\proofread\server_v2.py
+```
+
+## Packaging
+
+`glowfish_reader.spec` adds Host `src` to PyInstaller `pathex` and declares
+`glowfish_host` plus `server_v2` as hidden imports. The UI remains supplied by the
+pinned UI component's deterministic `dist` manifest.
+
+## Rollback
+
+Revert the two `desktop_app.py` imports from `server_v2` to `server`. No document,
+account, OCR model, or HTTP contract migration is involved in this slice.
