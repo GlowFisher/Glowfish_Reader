@@ -148,10 +148,15 @@ def _selftest():
     try:
         me = json.loads(urllib.request.urlopen(base + "/api/me", timeout=5).read())
         caps = json.loads(urllib.request.urlopen(base + "/api/capabilities", timeout=8).read())
-        ok = me.get("single") is True and caps.get("ok") is True
+        runtime = json.loads(urllib.request.urlopen(base + "/api/runtime/status", timeout=5).read())
+        runtime_mode = (runtime.get("ocr") or {}).get("mode")
+        ok = (
+            me.get("single") is True and caps.get("ok") is True
+            and runtime_mode in {"legacy", "component"}
+        )
         missing = [c["label"] for c in caps.get("capabilities", {}).values() if not c["ok"]]
         detail = f" missing={missing}" if missing else ""
-        print(f"SELFTEST {'OK' if ok else 'FAIL'}: me={me} capabilities_ok={caps.get('ok')}{detail}")
+        print(f"SELFTEST {'OK' if ok else 'FAIL'}: me={me} capabilities_ok={caps.get('ok')} ocr_runtime={runtime_mode}{detail}")
         return 0 if ok else 1
     except Exception as e:
         print(f"SELFTEST FAIL: {e!r}")

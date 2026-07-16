@@ -208,9 +208,16 @@ def _run_engine_legacy(ctx: Ctx, image_dir: Path, recog_path: Path, engine: str,
         raise RuntimeError(f"Recognition failed (engine {eng2}):\n{r.stdout}\n{r.stderr}")
 
 
+def _record_runner_fallback(runner, *, engine, success, error=None):
+    observer = getattr(runner, "record_fallback", None)
+    if callable(observer):
+        observer(engine=engine, success=success, error=error)
+
+
 def _run_engine(ctx: Ctx, image_dir: Path, recog_path: Path, engine: str, job=None):
     """Run one engine attempt through an injected port with legacy fallback."""
     runner = _OCR_ENGINE_RUNNER
+    fallback_reason = None
     if runner is not None:
         try:
             handled = runner(
@@ -225,13 +232,23 @@ def _run_engine(ctx: Ctx, image_dir: Path, recog_path: Path, engine: str, job=No
                     raise RuntimeError("configured OCR runner produced no output")
                 return
             _LOG.info("Configured OCR runner declined engine=%s; using legacy runtime", engine)
-        except Exception:
+            fallback_reason = RuntimeError("configured OCR runner declined")
+        except Exception as exc:
+            fallback_reason = exc
             _LOG.exception("Configured OCR runner failed engine=%s; using legacy runtime", engine)
         try:
             recog_path.unlink(missing_ok=True)
         except OSError:
             _LOG.warning("Could not discard injected OCR output before legacy fallback: %s", recog_path)
-    return _run_engine_legacy(ctx, image_dir, recog_path, engine, job=job)
+    try:
+        result = _run_engine_legacy(ctx, image_dir, recog_path, engine, job=job)
+    except Exception as exc:
+        if runner is not None and fallback_reason is not None:
+            _record_runner_fallback(runner, engine=engine, success=False, error=exc)
+        raise
+    if runner is not None and fallback_reason is not None:
+        _record_runner_fallback(runner, engine=engine, success=True, error=fallback_reason)
+    return result
 
 
 

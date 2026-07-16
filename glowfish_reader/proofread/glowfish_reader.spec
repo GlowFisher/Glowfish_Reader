@@ -37,7 +37,7 @@ hiddenimports += [
     "glowfish_ocr", "glowfish_ocr.contracts", "glowfish_ocr.registry",
     "glowfish_ocr.service", "glowfish_ocr.resident", "glowfish_ocr.validation",
     "server", "appconfig", "runtime_logging", "auth", "auth_api", "content_api", "export_api",
-    "ocr_component_runtime", "ocr_runtime_benchmark", "psutil",
+    "ocr_component_runtime", "ocr_runtime_benchmark", "runtime_status_api", "psutil",
     "library_api", "userctx", "safefs", "settings_store", "engines", "ingest",
     "proof_model", "t2s_fixes", "punctuate_local", "recognize", "recognize_ppocrv6",
     "recognize_ppocrv6_onnx", "build_docx",

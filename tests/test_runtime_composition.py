@@ -40,6 +40,7 @@ def test_desktop_runtime_uses_v2_composition_entry():
     desktop = (root / "glowfish_reader" / "proofread" / "desktop_app.py").read_text(encoding="utf-8")
     production_imports = [line.strip() for line in desktop.splitlines() if "from server" in line]
     assert production_imports
+    assert 'base + "/api/runtime/status"' in desktop
     assert set(production_imports) == {"from server_v2 import app"}
 
 
@@ -52,7 +53,10 @@ def test_v2_entry_injects_legacy_routers_without_owning_them():
     assert "ui_dist=ui_assets.ui_dist()" in entry
     assert "_shutdown_component_ocr" in entry
     assert "content_api.shutdown_ocr" in entry
-    assert "ocr_component_runtime.component_runtime_enabled()" in entry
+    assert "ocr_component_runtime.component_runtime_mode()" in entry
+    assert "runtime_status_api.configure_runtime_status_provider" in entry
+    assert "runtime_status_api.router" in entry
+    assert "OCR_POLICY, OCR_RUNNER = _configure_ocr_runtime()" in entry
     assert "ocr_component_runtime.ComponentOcrEngineRunner()" in entry
     assert 'OCR_RUNTIME = "component" if OCR_RUNNER is not None else "legacy"' in entry
     assert "content_api.configure_ocr_engine_runner(None)" in entry
