@@ -22,7 +22,7 @@ After building the PyInstaller onedir, pass the packaged desktop executable:
 
 ```powershell
 python .\scripts\run_ocr_runtime_ab.py `
-  --executable "D:\short-build\dist\glowfish_reader\Glowfish Reader V2.0.0.exe" `
+  --executable "D:\short-build\dist\glowfish_reader\Glowfish Reader V1.0.1.exe" `
   --fixture .\components\ocr\bench\fixtures\vertical_cht_clean.png `
   --output-dir .\.tmp\ocr-ab-frozen
 ```

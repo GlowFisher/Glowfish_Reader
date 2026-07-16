@@ -14,8 +14,8 @@ profile.
 Verify the installer hash before execution:
 
 ```powershell
-Get-FileHash ".\Glowfish Reader V2.0.0 Setup.exe" -Algorithm SHA256
-Get-AuthenticodeSignature ".\Glowfish Reader V2.0.0 Setup.exe"
+Get-FileHash ".\Glowfish Reader V1.0.1 Setup.exe" -Algorithm SHA256
+Get-AuthenticodeSignature ".\Glowfish Reader V1.0.1 Setup.exe"
 ```
 
 Public release requires a valid organization code-signing signature. An unsigned

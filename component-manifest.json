@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "host_version": "2.0.0-dev",
+  "host_version": "1.0.1",
   "contracts": {"version": "1.0.0", "commit": "d44d623ab893795b58a1e39ad1f003329940dd45"},
   "ui": {"version": "1.0.0", "commit": "2cbf5ebb837350874fa211a9f2b01422906b678f"},
   "ocr": {"version": "1.2.0", "commit": "e6b859f6238ed3d350c32e2efd614e77d6d0428c"},

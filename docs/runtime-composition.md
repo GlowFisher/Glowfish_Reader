@@ -1,4 +1,4 @@
-# V2 runtime composition
+# Modular 1.0.1 runtime composition
 
 The packaged desktop application now imports `server_v2`, which delegates FastAPI
 assembly to the public `glowfish_host.create_app` factory. Existing flat routers are
@@ -10,7 +10,7 @@ incremental cutover.
 
 ## Source development
 
-Install the Host package before starting the V2 entry from source:
+Install the Host package before starting the modular 1.0.1 entry from source:
 
 ```powershell
 python -m pip install --no-deps -e .
@@ -41,7 +41,7 @@ and progress reporting remain owned by `content_api` until a later component cut
 
 ### Public component canary
 
-Set `GLOWFISH_OCR_COMPONENT_RUNTIME=1` before starting the V2 entry to route each
+Set `GLOWFISH_OCR_COMPONENT_RUNTIME=1` before starting the modular entry to route each
 single-engine attempt through one persistent `glowfish_ocr.ResidentOcrService`.
 Matching engine/config requests reuse the same JSON-lines worker; configuration changes
 restart it, repeated startup failures open a circuit, and the idle TTL releases it.

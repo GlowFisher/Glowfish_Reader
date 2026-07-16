@@ -17,7 +17,7 @@ during module initialization, including the OCR dependency self-test path.
 
 ## Verified baseline
 
-On the `Glowfish Reader V2.0.0` onedir build:
+On the `Glowfish Reader V1.0.1` onedir build:
 
 | Measurement | Before | After |
 | --- | ---: | ---: |

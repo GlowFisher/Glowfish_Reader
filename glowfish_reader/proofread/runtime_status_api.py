@@ -1,4 +1,4 @@
-"""Read-only runtime diagnostics assembled by the V2 composition root."""
+"""Read-only runtime diagnostics assembled by the modular composition root."""
 
 from __future__ import annotations
 

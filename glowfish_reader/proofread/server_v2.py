@@ -1,4 +1,4 @@
-"""V2 production composition entry point.
+"""Modular product composition entry point.
 
 Legacy routers remain injected while their implementations migrate behind public
 component ports. The old ``server.py`` stays available as an explicit rollback
