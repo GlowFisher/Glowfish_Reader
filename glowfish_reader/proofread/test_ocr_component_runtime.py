@@ -1,7 +1,5 @@
-import subprocess
+from pathlib import Path
 from types import SimpleNamespace
-
-import pytest
 
 import ocr_component_runtime
 
@@ -13,9 +11,10 @@ def test_component_runtime_is_explicitly_opt_in(monkeypatch):
     assert not ocr_component_runtime.component_runtime_enabled("0")
 
 
-def test_component_runner_translates_one_host_attempt(tmp_path):
+def test_component_runner_reuses_service_and_forwards_job_metadata(tmp_path):
     captured = {}
     cancel_checks = []
+    factory_calls = []
 
     def check_cancelled():
         cancel_checks.append(True)
@@ -27,15 +26,31 @@ def test_component_runner_translates_one_host_attempt(tmp_path):
     )
 
     class Service:
+        def __init__(self):
+            self.shutdown_calls = 0
+
         def recognize_exact(self, request):
             captured["request"] = request
             request.output_path.write_text("{}", encoding="utf-8")
 
+        def prewarm(self, engine):
+            captured["prewarm"] = engine
+            return SimpleNamespace(ok=True)
+
+        def shutdown(self):
+            self.shutdown_calls += 1
+
     def request_factory(**kwargs):
         return SimpleNamespace(**kwargs)
 
+    service = Service()
+
+    def service_factory(actual_job):
+        factory_calls.append(actual_job)
+        return service
+
     runner = ocr_component_runtime.ComponentOcrEngineRunner(
-        service_factory=lambda actual_job: Service(),
+        service_factory=service_factory,
         request_factory=request_factory,
     )
     output = tmp_path / "recog.json"
@@ -47,26 +62,38 @@ def test_component_runner_translates_one_host_attempt(tmp_path):
         engine="ppocrv6_onnx_high",
         job=job,
     )
+    assert runner.prewarm("ppocrv6_onnx_high")
     assert captured["request"].engine == "ppocrv6_onnx_high"
     assert captured["request"].progress_path == job.progress_path
+    assert captured["request"].job_id == "job-1"
+    assert captured["prewarm"] == "ppocrv6_onnx_high"
     assert output.exists()
     assert cancel_checks == [True, True]
+    assert factory_calls == [job]
+
+    runner.shutdown()
+    assert service.shutdown_calls == 1
 
 
-def test_tracked_runner_preserves_process_metadata_and_check(monkeypatch):
+def test_default_worker_factory_uses_host_process_lifecycle(monkeypatch):
+    root = Path(__file__).resolve().parents[2]
+    monkeypatch.syspath_prepend(str(root / "components" / "ocr" / "src"))
+    import glowfish_ocr
+
     captured = {}
 
-    def fake_run(command, **kwargs):
-        captured.update(command=command, kwargs=kwargs)
-        return subprocess.CompletedProcess(command, 7, "out", "err")
+    def fake_worker(prefix, **kwargs):
+        captured.update(prefix=prefix, kwargs=kwargs)
+        return "worker"
 
-    monkeypatch.setattr(ocr_component_runtime.windows_process, "run", fake_run)
-    runner = ocr_component_runtime._tracked_process_runner(SimpleNamespace(job_id="job-7"))
+    monkeypatch.setattr(glowfish_ocr, "JsonLineOcrWorker", fake_worker)
+    worker = ocr_component_runtime._default_worker_factory(
+        ["reader.exe", "--ocr", "ppocrv6_onnx_high"],
+        env={"TEST": "1"},
+        model_type="ppocrv6_onnx_high",
+        config={"profile": "high_accuracy"},
+    )
 
-    with pytest.raises(subprocess.CalledProcessError) as error:
-        runner(["reader.exe", "--ocr"], check=True, timeout=12, cwd="runtime")
-
-    assert error.value.returncode == 7
-    assert captured["kwargs"]["purpose"] == "component-ocr"
-    assert captured["kwargs"]["job_id"] == "job-7"
-    assert captured["kwargs"]["timeout"] == 12
+    assert worker == "worker"
+    assert captured["kwargs"]["spawn"] is ocr_component_runtime.windows_process.spawn
+    assert captured["kwargs"]["terminate"] is ocr_component_runtime.windows_process.terminate_process

@@ -90,3 +90,24 @@ def test_runner_without_output_is_treated_as_failure(tmp_path, monkeypatch):
     content_api._run_engine(_ctx(tmp_path), tmp_path, output, "ppocrv6_onnx_high")
 
     assert legacy_calls == [True]
+
+
+def test_prewarm_prefers_configured_runner(monkeypatch):
+    calls = []
+
+    class Runner:
+        def __call__(self, **kwargs):
+            return True
+
+        def prewarm(self, engine):
+            calls.append(engine)
+            return True
+
+    def unexpected_legacy(*args, **kwargs):
+        raise AssertionError("legacy prewarm should not run")
+
+    monkeypatch.setattr(content_api, "_worker_for", unexpected_legacy)
+    content_api.configure_ocr_engine_runner(Runner())
+
+    assert content_api.prewarm("ppocrv6_onnx_high")
+    assert calls == ["ppocrv6_onnx_high"]

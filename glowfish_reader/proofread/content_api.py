@@ -112,6 +112,15 @@ def _worker_for(eng, prefix, params):
 
 
 def prewarm(engine: str = None):
+    eng = engines.engine_name(engine)
+    runner = _OCR_ENGINE_RUNNER
+    if runner is not None and hasattr(runner, "prewarm"):
+        try:
+            if runner.prewarm(eng):
+                _CUR_ENGINE["name"] = eng
+                return True
+        except Exception:
+            _LOG.exception("Configured OCR runner prewarm failed engine=%s; using legacy runtime", eng)
     try:
         eng2, prefix, params = engines.resolve_engine(engine)
     except Exception:

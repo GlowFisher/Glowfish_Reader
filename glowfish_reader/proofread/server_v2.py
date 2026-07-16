@@ -24,15 +24,20 @@ import update_api
 
 def _configure_ocr_runtime():
     if ocr_component_runtime.component_runtime_enabled():
-        content_api.configure_ocr_engine_runner(
-            ocr_component_runtime.ComponentOcrEngineRunner()
-        )
-        return "component"
+        runner = ocr_component_runtime.ComponentOcrEngineRunner()
+        content_api.configure_ocr_engine_runner(runner)
+        return runner
     content_api.configure_ocr_engine_runner(None)
-    return "legacy"
+    return None
 
 
-OCR_RUNTIME = _configure_ocr_runtime()
+OCR_RUNNER = _configure_ocr_runtime()
+OCR_RUNTIME = "component" if OCR_RUNNER is not None else "legacy"
+
+
+def _shutdown_component_ocr():
+    if OCR_RUNNER is not None:
+        OCR_RUNNER.shutdown()
 
 
 app = create_app(
@@ -47,7 +52,10 @@ app = create_app(
             library_api.router,
         ),
         ui_dist=ui_assets.ui_dist(),
-        shutdown_hooks=(content_api.shutdown_ocr,),
+        shutdown_hooks=(
+            _shutdown_component_ocr,
+            content_api.shutdown_ocr,
+        ),
     )
 )
 

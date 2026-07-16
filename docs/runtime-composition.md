@@ -42,12 +42,15 @@ and progress reporting remain owned by `content_api` until a later component cut
 ### Public component canary
 
 Set `GLOWFISH_OCR_COMPONENT_RUNTIME=1` before starting the V2 entry to route each
-single-engine attempt through `glowfish_ocr.SubprocessOcrService.recognize_exact()`.
-The adapter retains Host-managed child-process registration, cancellation metadata,
-timeouts, hidden Windows processes, and shutdown cleanup. Component failures return to
-the legacy runner through the existing migration seam.
+single-engine attempt through one persistent `glowfish_ocr.ResidentOcrService`.
+Matching engine/config requests reuse the same JSON-lines worker; configuration changes
+restart it, repeated startup failures open a circuit, and the idle TTL releases it.
 
-The canary is disabled by default because the component path currently uses one-shot
-processes and has not yet reached resident-worker performance parity. Source development
-also requires `python -m pip install --no-deps -e components/ocr`; PyInstaller includes
-the pinned component package directly through `OCR_SRC`.
+The adapter injects Host-managed spawn/termination callbacks, preserves job IDs and
+cancellation checks, routes prewarm into the component worker, and closes the service
+during application shutdown. Component failures still return to the legacy runner
+through the existing migration seam.
+
+The canary remains disabled by default pending packaged performance measurements and
+field soak. Source development requires `python -m pip install --no-deps -e components/ocr`;
+PyInstaller includes the pinned component package directly through `OCR_SRC`.
