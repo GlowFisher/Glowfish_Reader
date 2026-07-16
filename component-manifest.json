@@ -2,7 +2,7 @@
   "schema_version": 1,
   "host_version": "1.0.1",
   "contracts": {"version": "1.0.0", "commit": "d44d623ab893795b58a1e39ad1f003329940dd45"},
-  "ui": {"version": "1.0.0", "commit": "2cbf5ebb837350874fa211a9f2b01422906b678f"},
-  "ocr": {"version": "1.2.0", "commit": "e6b859f6238ed3d350c32e2efd614e77d6d0428c"},
-  "account": {"version": "1.0.0", "commit": "41bb8ec60bb88a1fed51d6bbda5c18b2cc87a485"}
+  "ui": {"version": "1.0.0", "commit": "92358b3def0c5be49fcbd3cb45bfb32b1cc9a3b4"},
+  "ocr": {"version": "1.2.0", "commit": "fb33b657421eeb5779ebe5cea4e0bcb6d1106792"},
+  "account": {"version": "1.0.0", "commit": "bf96938bea7a37fd26f27d0c9f190cf423e7f9ee"}
 }
