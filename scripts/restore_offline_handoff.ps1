@@ -17,7 +17,7 @@ foreach ($name in $names) {
   if ($LASTEXITCODE -ne 0) { throw "Clone failed: $name" }
 }
 $hostRepo = Join-Path $targetRoot "glowfish-reader-host"
-git -C $hostRepo switch integration/2.0
+git -C $hostRepo switch release/1.0.1
 if ($LASTEXITCODE -ne 0) { throw "Host integration branch missing" }
 $mapping = @{contracts="glowfish-contracts"; ui="glowfish-reader-ui"; ocr="glowfish-ocr"; account="glowfish-account"}
 foreach ($component in $mapping.Keys) {

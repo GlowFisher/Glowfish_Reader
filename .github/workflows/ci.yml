@@ -2,7 +2,7 @@ name: host-ci
 on:
   pull_request:
   push:
-    branches: [main, integration/2.0, maintenance/1.0]
+    branches: [main, release/1.0.1, maintenance/1.0]
 permissions:
   contents: read
 jobs:
