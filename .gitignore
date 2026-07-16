@@ -11,5 +11,5 @@ dist/
 glowfish_reader/proofread/models/
 glowfish_reader/proofread/_work/
 glowfish_reader/proofread/*.db
-components/ui/dist/
+components/
 p/

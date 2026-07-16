@@ -2,13 +2,14 @@
 from pathlib import Path
 
 from export_api import _export_single
+from ui_assets import ui_dist
 
 
 ROOT = Path(__file__).resolve().parent
 
 
 def read_static(name):
-    return (ROOT.parents[1] / "components" / "ui" / "dist" / name).read_text(encoding="utf-8")
+    return (ui_dist() / name).read_text(encoding="utf-8")
 
 
 def _proof():

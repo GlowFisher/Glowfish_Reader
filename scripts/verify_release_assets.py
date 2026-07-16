@@ -5,11 +5,13 @@ import json
 import os
 from pathlib import Path
 
+from workspace_paths import component_root
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
 def verify_ui() -> int:
-    dist = ROOT / "components" / "ui" / "dist"
+    dist = Path(os.environ.get("GLOWFISH_UI_DIST", component_root("ui") / "dist"))
     manifest = json.loads((dist / "manifest.json").read_text(encoding="utf-8"))
     count = 0
     for item in manifest["files"]:
@@ -22,7 +24,7 @@ def verify_ui() -> int:
 
 def verify_models() -> int:
     model_root = Path(os.environ.get("GLOWFISH_OCR_MODELS", ROOT / "glowfish_reader" / "proofread" / "models"))
-    lock = json.loads((ROOT / "components" / "ocr" / "models.lock.json").read_text(encoding="utf-8"))
+    lock = json.loads((component_root("ocr") / "models.lock.json").read_text(encoding="utf-8"))
     count = 0
     for item in lock["files"]:
         path = model_root / item["path"]

@@ -7,11 +7,16 @@ from pathlib import Path
 
 def ui_dist() -> Path:
     override = os.environ.get("GLOWFISH_UI_DIST")
+    workspace = os.environ.get("GLOWFISH_WORKSPACE_ROOT")
     candidates = []
     if override:
         candidates.append(Path(override))
     here = Path(__file__).resolve().parent
-    candidates.extend((here / "ui_dist", here.parents[1] / "components" / "ui" / "dist"))
+    candidates.append(here / "ui_dist")
+    if workspace:
+        candidates.append(Path(workspace) / "ui" / "dist")
+    else:
+        candidates.append(here.parents[2] / "ui" / "dist")
     for candidate in candidates:
         manifest = candidate / "manifest.json"
         if not manifest.is_file():

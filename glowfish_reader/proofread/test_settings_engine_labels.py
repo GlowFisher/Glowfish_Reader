@@ -3,12 +3,13 @@ from pathlib import Path
 
 import engines
 
+from ui_assets import ui_dist
 
 ROOT = Path(__file__).resolve().parent
 
 
 def read_static(name):
-    return (ROOT.parents[1] / "components" / "ui" / "dist" / name).read_text(encoding="utf-8")
+    return (ui_dist() / name).read_text(encoding="utf-8")
 
 
 def test_settings_engine_label_uses_actual_onnx_engine_value():
