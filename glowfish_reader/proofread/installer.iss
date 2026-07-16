@@ -21,6 +21,9 @@
 #ifndef OutputBase
   #define OutputBase AppDisplayName + " Setup"
 #endif
+#ifndef OutputDir
+  #define OutputDir "Output"
+#endif
 
 [Setup]
 AppId={{8F3B2A10-7C4E-4D2A-9B6F-A1B2C3D4E5F6}
@@ -34,7 +37,7 @@ DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
-OutputDir=Output
+OutputDir={#OutputDir}
 OutputBaseFilename={#OutputBase}
 ; 安装器/卸载向导图标 = 商标跃鱼标（与 exe 内嵌图标一致）
 SetupIconFile=assets\glowfish.ico

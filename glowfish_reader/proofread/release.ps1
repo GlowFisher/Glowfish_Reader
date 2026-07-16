@@ -27,6 +27,7 @@ param(
   [string]$DownloadBase = "https://license.glowfishreader.com/dl",
   [string]$SshKey = "",
   [string]$BuildRoot = "",
+  [string]$OutputDir = "",
   [string]$Python = ""
 )
 $ErrorActionPreference = "Stop"
@@ -54,6 +55,8 @@ if (-not $BuildRoot) { $BuildRoot = $env:GLOWFISH_BUILD_ROOT }
 if (-not $BuildRoot) { $BuildRoot = Join-Path ([IO.Path]::GetPathRoot($hostRoot)) "GlowfishBuild\release" }
 $workPath = Join-Path $BuildRoot "work"
 $distPath = Join-Path $BuildRoot "dist"
+if (-not $OutputDir) { $OutputDir = Join-Path $BuildRoot "artifacts" }
+New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 if ((Join-Path $distPath "glowfish_reader\_internal\onnxruntime\tools\ort_format_model\ort_flatbuffers_py\fbs\RuntimeOptimizationRecordContainerEntry.py").Length -ge 248) { throw "BuildRoot is too long for Windows packaging: $BuildRoot" }
 $uiRoot = Join-Path $hostRoot "components\ui"
 $npm = (Get-Command npm.cmd -ErrorAction SilentlyContinue).Source
@@ -140,12 +143,11 @@ $ISCC = $isccCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
 if (-not $ISCC) { throw ("ISCC not found in any of: " + ($isccCandidates -join '; ') + " (install Inno Setup 6 or edit path)") }
 $iss = Join-Path $here "installer.iss"
 Write-Host "[release] compiling FULL installer ..."
-& $ISCC "/DAppVersion=$ver" "/DOutputBase=$setupBase" "/DSourceDir=$distDir" $iss
+& $ISCC "/DAppVersion=$ver" "/DOutputBase=$setupBase" "/DSourceDir=$distDir" "/DOutputDir=$OutputDir" $iss
 if ($LASTEXITCODE -ne 0) { throw "ISCC (full) failed ($LASTEXITCODE)" }
 
 # --- 4. versioned artifacts + hashes ---
-$outDir  = Join-Path $here "Output"
-$built = Join-Path $outDir $setupFileName
+$built = Join-Path $OutputDir $setupFileName
 if (-not (Test-Path $built)) { throw "installer not produced: $built" }
 $verOut = $built
 $meta = (Get-Item $verOut).VersionInfo
@@ -168,7 +170,7 @@ $manifest = [ordered]@{
   released      = (Get-Date -Format "yyyy-MM-dd")
 }
 $json = $manifest | ConvertTo-Json -Depth 6
-$manifestPath = Join-Path $outDir "update.json"
+$manifestPath = Join-Path $OutputDir "update.json"
 [System.IO.File]::WriteAllText($manifestPath, $json, (New-Object System.Text.UTF8Encoding($false)))
 Write-Host "[release] manifest = $manifestPath"
 Write-Host $json

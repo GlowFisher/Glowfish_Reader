@@ -38,3 +38,14 @@ def test_release_accepts_explicit_build_python():
     assert "$py = $Python" in text
     assert "$py = $env:GLOWFISH_BUILD_PYTHON" in text
     assert "pass -Python or set GLOWFISH_BUILD_PYTHON" in text
+
+
+def test_release_keeps_artifacts_outside_source_tree_by_default():
+    text = SCRIPT.read_text(encoding="utf-8")
+
+    assert '[string]$OutputDir = ""' in text
+    assert 'Join-Path $BuildRoot "artifacts"' in text
+    assert '"/DSourceDir=$distDir"' in text
+    assert '"/DOutputDir=$OutputDir"' in text
+    assert '$built = Join-Path $OutputDir $setupFileName' in text
+    assert '$manifestPath = Join-Path $OutputDir "update.json"' in text
