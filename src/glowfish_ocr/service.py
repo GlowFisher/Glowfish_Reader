@@ -7,6 +7,7 @@ from typing import Callable, Sequence
 
 from .contracts import OcrHealth, OcrRequest, OcrResult, RegionOcrRequest
 from .registry import LIGHTWEIGHT_ENGINE, normalize_engine, resolve_engine
+from .validation import read_ocr_result
 
 
 Runner = Callable[..., subprocess.CompletedProcess]
@@ -44,18 +45,7 @@ class SubprocessOcrService:
 
     @staticmethod
     def _read_result(path: Path) -> dict:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        if not isinstance(data, dict):
-            raise ValueError("OCR output must be a JSON object")
-        for page_id, page in data.items():
-            if page_id == "_meta":
-                continue
-            if not isinstance(page, dict) or not isinstance(page.get("lines"), list):
-                raise ValueError(f"Invalid OCR page contract: {page_id}")
-            for line in page["lines"]:
-                if not isinstance(line, dict) or not {"text", "box", "score"}.issubset(line):
-                    raise ValueError(f"Invalid OCR line contract on page: {page_id}")
-        return data
+        return read_ocr_result(path)
 
     def _run(self, request: OcrRequest, engine: str) -> OcrResult:
         request.image_dir.resolve(strict=True)

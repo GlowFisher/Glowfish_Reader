@@ -13,6 +13,7 @@ class OcrRequest:
     progress_path: Path | None = None
     config: Mapping[str, Any] = field(default_factory=dict)
     timeout_seconds: float | None = None
+    job_id: str | None = None
 
 
 @dataclass(frozen=True)
