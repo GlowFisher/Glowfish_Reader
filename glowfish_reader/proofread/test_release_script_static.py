@@ -29,3 +29,12 @@ def test_release_runs_packaging_preflight_before_optional_build():
 
     assert preflight < build
     assert '& $py -m PyInstaller --clean --noconfirm' in text
+
+
+def test_release_accepts_explicit_build_python():
+    text = SCRIPT.read_text(encoding="utf-8")
+
+    assert '[string]$Python = ""' in text
+    assert "$py = $Python" in text
+    assert "$py = $env:GLOWFISH_BUILD_PYTHON" in text
+    assert "pass -Python or set GLOWFISH_BUILD_PYTHON" in text

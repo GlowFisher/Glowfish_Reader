@@ -26,7 +26,8 @@ param(
   [string]$RemoteManifest = "/var/www/glowfish/update.json",
   [string]$DownloadBase = "https://license.glowfishreader.com/dl",
   [string]$SshKey = "",
-  [string]$BuildRoot = ""
+  [string]$BuildRoot = "",
+  [string]$Python = ""
 )
 $ErrorActionPreference = "Stop"
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path     # proofread/
@@ -44,8 +45,10 @@ Write-Host "[release] version = $ver"
 Write-Host "[release] product = $productName"
 
 # --- 2. packaging dependency preflight (does not build) ---
-$py = Join-Path $here "..\.venv\Scripts\python.exe"
-if (-not (Test-Path $py)) { throw "venv python not found: $py" }
+$py = $Python
+if (-not $py) { $py = $env:GLOWFISH_BUILD_PYTHON }
+if (-not $py) { $py = Join-Path $here "..\.venv\Scripts\python.exe" }
+if (-not (Test-Path $py)) { throw "build python not found: $py (pass -Python or set GLOWFISH_BUILD_PYTHON)" }
 $hostRoot = (Resolve-Path (Join-Path $here "..\..")).Path
 if (-not $BuildRoot) { $BuildRoot = $env:GLOWFISH_BUILD_ROOT }
 if (-not $BuildRoot) { $BuildRoot = Join-Path ([IO.Path]::GetPathRoot($hostRoot)) "GlowfishBuild\release" }

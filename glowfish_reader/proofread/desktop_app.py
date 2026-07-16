@@ -416,6 +416,9 @@ if __name__ == "__main__":
         sys.exit(_selftest_ocr())
     if arg1 == "--selftest-release-fixes":
         sys.exit(_selftest_release_fixes())
+    if arg1 == "--benchmark-ocr-runtime":
+        from ocr_runtime_benchmark import main as benchmark_main
+        sys.exit(benchmark_main(sys.argv[2:]))
     if arg1 == "--serve":
         _serve_headless()
         sys.exit(0)

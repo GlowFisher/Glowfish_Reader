@@ -10,4 +10,10 @@ def test_pyinstaller_includes_host_public_package_and_v2_entry():
     assert '"glowfish_host", "glowfish_host.app", "glowfish_host.services", "server_v2"' in spec
     assert '"glowfish_ocr", "glowfish_ocr.contracts", "glowfish_ocr.registry"' in spec
     assert '"glowfish_ocr.service", "glowfish_ocr.resident", "glowfish_ocr.validation"' in spec
-    assert '"ocr_component_runtime"' in spec
+    assert '"ocr_component_runtime", "ocr_runtime_benchmark", "psutil"' in spec
+
+
+def test_desktop_exposes_structured_ocr_runtime_benchmark():
+    root = Path(__file__).resolve().parents[1]
+    desktop = (root / "glowfish_reader" / "proofread" / "desktop_app.py").read_text(encoding="utf-8")
+    assert 'if arg1 == "--benchmark-ocr-runtime":' in desktop
