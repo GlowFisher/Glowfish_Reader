@@ -42,9 +42,17 @@ def normalize_engine(name: str | None) -> str:
     return normalized if normalized in ENGINE_SPECS else DEFAULT_ENGINE
 
 
-def resolve_engine(name: str | None, legacy_dir: Path, paddle_python: Path | None = None) -> tuple[str, list[str], dict[str, Any]]:
+def resolve_engine(
+    name: str | None,
+    legacy_dir: Path,
+    paddle_python: Path | None = None,
+    desktop_executable: Path | None = None,
+) -> tuple[str, list[str], dict[str, Any]]:
     normalized = normalize_engine(name)
     spec = ENGINE_SPECS[normalized]
+    if spec.uses_current_python and desktop_executable is not None:
+        executable = Path(desktop_executable).resolve()
+        return normalized, [str(executable), "--ocr", normalized], dict(spec.params)
     python = Path(sys.executable) if spec.uses_current_python else paddle_python
     if python is None:
         raise RuntimeError(f"OCR engine '{normalized}' requires an explicitly configured Paddle Python interpreter")

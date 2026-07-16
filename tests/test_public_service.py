@@ -56,3 +56,48 @@ def test_service_falls_back_to_lightweight(tmp_path):
     assert result.actual_engine == LIGHTWEIGHT_ENGINE
     assert result.fallback.startswith("ppocrv6:")
     assert len(calls) == 2
+
+
+def test_exact_recognition_does_not_apply_component_fallback(tmp_path):
+    legacy = tmp_path / "legacy"
+    legacy.mkdir()
+    (legacy / "recognize_ppocrv6.py").write_text("# synthetic", encoding="utf-8")
+    images = tmp_path / "images"
+    images.mkdir()
+    calls = []
+
+    def runner(command, **kwargs):
+        calls.append(command)
+        raise subprocess.CalledProcessError(1, command)
+
+    service = SubprocessOcrService(legacy, paddle_python=Path("paddle-python"), runner=runner)
+
+    try:
+        service.recognize_exact(OcrRequest(images, tmp_path / "result.json", "ppocrv6"))
+    except subprocess.CalledProcessError:
+        pass
+    else:
+        raise AssertionError("exact recognition must expose the engine failure")
+
+    assert len(calls) == 1
+
+
+def test_frozen_desktop_command_uses_ocr_dispatch_protocol(tmp_path):
+    legacy = tmp_path / "legacy"
+    legacy.mkdir()
+    images = tmp_path / "images"
+    images.mkdir()
+    output = tmp_path / "result.json"
+    executable = tmp_path / "glowfish-reader.exe"
+    calls = []
+
+    def runner(command, **kwargs):
+        calls.append(command)
+        output.write_text(json.dumps({"p001": {"lines": []}}), encoding="utf-8")
+        return subprocess.CompletedProcess(command, 0)
+
+    service = SubprocessOcrService(legacy, desktop_executable=executable, runner=runner)
+    result = service.recognize_exact(OcrRequest(images, output))
+
+    assert result.actual_engine == DEFAULT_ENGINE
+    assert calls[0][:3] == [str(executable.resolve()), "--ocr", DEFAULT_ENGINE]

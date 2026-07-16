@@ -15,15 +15,27 @@ Runner = Callable[..., subprocess.CompletedProcess]
 class SubprocessOcrService:
     """Public adapter around the preserved local v1 OCR worker scripts."""
 
-    def __init__(self, legacy_dir: Path | None = None, paddle_python: Path | None = None, runner: Runner = subprocess.run):
+    def __init__(
+        self,
+        legacy_dir: Path | None = None,
+        paddle_python: Path | None = None,
+        desktop_executable: Path | None = None,
+        runner: Runner = subprocess.run,
+    ):
         self._legacy_dir = (Path(legacy_dir) if legacy_dir else Path(__file__).resolve().parent / "legacy").resolve()
         self._paddle_python = Path(paddle_python).resolve() if paddle_python else None
+        self._desktop_executable = Path(desktop_executable).resolve() if desktop_executable else None
         self._runner = runner
         if not self._legacy_dir.is_dir():
             raise FileNotFoundError(f"OCR legacy implementation directory missing: {self._legacy_dir}")
 
     def _command(self, request: OcrRequest, engine: str) -> tuple[str, Sequence[str]]:
-        actual, prefix, defaults = resolve_engine(engine, self._legacy_dir, self._paddle_python)
+        actual, prefix, defaults = resolve_engine(
+            engine,
+            self._legacy_dir,
+            self._paddle_python,
+            self._desktop_executable,
+        )
         config = {**defaults, **dict(request.config)}
         command = [*prefix, "--images", str(request.image_dir), "--out", str(request.output_path), "--config", json.dumps(config, ensure_ascii=False)]
         if request.progress_path:
@@ -51,6 +63,10 @@ class SubprocessOcrService:
         actual, command = self._command(request, engine)
         self._runner(command, check=True, timeout=request.timeout_seconds, cwd=str(self._legacy_dir))
         return OcrResult(request.engine, actual, self._read_result(request.output_path), request.output_path)
+
+    def recognize_exact(self, request: OcrRequest) -> OcrResult:
+        """Execute one normalized engine attempt without cross-engine fallback."""
+        return self._run(request, normalize_engine(request.engine))
 
     def recognize(self, request: OcrRequest) -> OcrResult:
         requested = normalize_engine(request.engine)
