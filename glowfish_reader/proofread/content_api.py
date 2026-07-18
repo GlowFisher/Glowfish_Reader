@@ -866,13 +866,16 @@ async def document_checkpoint(req: Request, ctx: Ctx = Depends(ctx_dep)):
     batch = safefs.safe_batch(body.get("batch", ""))
     _, repo = _document_repo(ctx, batch)
 
+    total = len(repo.load_meta().get("pages", []))
+
     def build_checkpoint(task):
-        task.check_cancelled()
-        repo.checkpoint()
-        task.progress(done=1)
+        repo.checkpoint(
+            progress=lambda done, page_total: task.progress(done=done, total=page_total),
+            check_cancelled=task.check_cancelled,
+        )
         return None
 
-    task = TASK_MANAGER.submit(ctx.uid, ctx.work, "checkpoint", [batch], 1, build_checkpoint)
+    task = TASK_MANAGER.submit(ctx.uid, ctx.work, "checkpoint", [batch], total, build_checkpoint)
     return {"job_id": task.task_id, "state": task.state, "kind": task.kind}
 
 @router.get("/api/load")

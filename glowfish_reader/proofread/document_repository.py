@@ -289,15 +289,54 @@ class DocumentRepository:
             meta.update({"schema_version": SCHEMA_VERSION, "revision": old_revision + 1, "pages": descriptors})
             _atomic_json(self.meta_path, meta)
             if checkpoint:
-                _atomic_json(self.proof_path, self.load_full())
+                self.checkpoint()
             return self.load_meta()
 
-    def checkpoint(self) -> dict:
+    def checkpoint(self, *, progress=None, check_cancelled=None) -> dict:
+        """Stream a compatibility proof snapshot without assembling all page bodies."""
         with self._lock:
-            proof = self.load_full()
-            _atomic_json(self.proof_path, proof)
-            return {"ok": True, "revision": int(self._meta().get("revision", 0))}
-
+            meta = copy.deepcopy(self._meta())
+            descriptors = meta.pop("pages", [])
+            meta.pop("schema_version", None)
+            fd, temp_name = tempfile.mkstemp(
+                prefix=".proof-checkpoint-", suffix=".tmp", dir=str(self.batch_dir)
+            )
+            temp = Path(temp_name)
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as stream:
+                    stream.write("{")
+                    first = True
+                    for key, value in meta.items():
+                        if not first:
+                            stream.write(",")
+                        json.dump(str(key), stream, ensure_ascii=False)
+                        stream.write(":")
+                        json.dump(value, stream, ensure_ascii=False)
+                        first = False
+                    if not first:
+                        stream.write(",")
+                    stream.write('"pages":[')
+                    total = len(descriptors)
+                    for index, descriptor in enumerate(descriptors):
+                        if check_cancelled:
+                            check_cancelled()
+                        if index:
+                            stream.write(",")
+                        page = self._read_json(self.batch_dir / descriptor["file"])
+                        json.dump(page, stream, ensure_ascii=False)
+                        if progress:
+                            progress(index + 1, total)
+                    stream.write("]}\n")
+                    stream.flush()
+                    os.fsync(stream.fileno())
+                if check_cancelled:
+                    check_cancelled()
+                os.replace(temp, self.proof_path)
+                _fsync_dir(self.batch_dir)
+                return {"ok": True, "revision": int(meta.get("revision", 0))}
+            except BaseException:
+                temp.unlink(missing_ok=True)
+                raise
 
 def repository_for_proof(proof_path: Path | str) -> DocumentRepository:
     return DocumentRepository(Path(proof_path).parent)
