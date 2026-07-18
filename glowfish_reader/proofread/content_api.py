@@ -889,7 +889,8 @@ def load_existing(batch: str, ctx: Ctx = Depends(ctx_dep)):
     # a read operation and must not rewrite a proof merely because paths moved.
     _repair_proof_image_refs(proof, reg, proof_path, persist=False)
     return JSONResponse({"proof": proof, "low_conf": M.LOW_CONF,
-                         "source": proof.get("source", batch)})
+                         "source": proof.get("source", batch), "deprecated": True,
+                         "replacement": ["/api/document_meta", "/api/document_page"]})
 
 @router.post("/api/reocr_batch")
 async def reocr_batch(req: Request, ctx: Ctx = Depends(ctx_dep)):
@@ -920,8 +921,10 @@ async def reocr_batch(req: Request, ctx: Ctx = Depends(ctx_dep)):
     _repair_proof_image_refs(proof, reg, proof_path)
     M.save_proof(proof, proof_path)
     _finish_progress(ctx)
-    return JSONResponse({"proof": proof, "low_conf": M.LOW_CONF,
-                         "source": proof.get("source", batch)})
+    meta = repository_for_proof(proof_path).load_meta()
+    return JSONResponse({"batch": batch, "document_meta": meta,
+                         "low_conf": M.LOW_CONF, "source": proof.get("source", batch),
+                         "page_count": len(meta.get("pages", [])), "paged": True})
 
 @router.get("/img/{batch}/{page_id}")
 def get_image(batch: str, page_id: str, ctx: Ctx = Depends(ctx_dep)):
@@ -929,17 +932,14 @@ def get_image(batch: str, page_id: str, ctx: Ctx = Depends(ctx_dep)):
     if not reg:
         raise HTTPException(404, "Batch not loaded")
     proof_path = Path(reg["proof_path"])
-    proof = json.loads(proof_path.read_text(encoding="utf-8"))
-    page = next((p for p in proof["pages"] if p["page_id"] == page_id), None)
-    if not page:
+    try:
+        page = repository_for_proof(proof_path).load_page(page_id)["page"]
+    except DocumentNotFoundError:
         raise HTTPException(404, "Page not found")
     fp = _resolve_page_image(page, reg, proof_path, repair=True)
     if not fp:
         raise HTTPException(404, "Image missing")
-    proof_image_dir = str(Path(reg.get("image_dir") or proof_path.parent / "_src"))
-    if proof.get("image_dir") != proof_image_dir:
-        proof["image_dir"] = proof_image_dir
-    M.save_proof(proof, proof_path)
+
     if fp.suffix.lower() in (".tif", ".tiff", ".bmp", ".webp"):
         from PIL import Image
         buf = io.BytesIO()
@@ -972,14 +972,13 @@ async def reocr_region(req: Request, ctx: Ctx = Depends(ctx_dep)):
     if not reg:
         raise HTTPException(404, "Batch not found")
     proof_path = Path(reg["proof_path"])
-    proof = json.loads(proof_path.read_text(encoding="utf-8"))
-    page = next((p for p in proof["pages"] if p["page_id"] == page_id), None)
-    if not page:
+    try:
+        page = repository_for_proof(proof_path).load_page(page_id)["page"]
+    except DocumentNotFoundError:
         raise HTTPException(404, "Page not found")
     img_path = _resolve_page_image(page, reg, proof_path, repair=True)
     if not img_path:
         raise HTTPException(404, "Line not found")
-    M.save_proof(proof, proof_path)
     from PIL import Image
     x1, y1, x2, y2 = [int(round(float(v))) for v in box]
     x1, x2 = sorted((max(0, x1), max(0, x2)))
