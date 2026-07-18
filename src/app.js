@@ -24,12 +24,12 @@ const toast = (m, opts) => {
 };
 
 const page = () => proof.pages[pageIdx];
-const lineById = (id) => { for (const pg of proof.pages) for (const l of pg.lines) if (l.id === id) return l; return null; };
+const lineById = (id) => { for (const l of page().lines) if (l.id === id) return l; return null; };
 
 // ---- 撤销/恢复：整份 proof 快照栈 ----
 let undoStack = [], redoStack = [];
 let textUndoMerge = { scope: null, ts: 0 };
-const snapshot = () => JSON.parse(JSON.stringify(proof));
+const snapshot = () => JSON.parse(JSON.stringify(page()));
 function resetTextUndoMerge() {
   textUndoMerge = { scope: null, ts: 0 };
 }
@@ -38,6 +38,8 @@ function pushUndo(snap) {
   undoStack.push(snap || snapshot());
   if (undoStack.length > UNDO_LIMIT) undoStack.shift();
   redoStack = []; updateHist();
+  if (typeof gfMarkCurrentPageDirty === "function") gfMarkCurrentPageDirty();
+  if (typeof gfScheduleSave === "function") gfScheduleSave();
 }
 function pushTextUndo(scopeKey) {
   const now = Date.now();
@@ -51,15 +53,13 @@ function pushTextUndo(scopeKey) {
 function undo() {
   if (!undoStack.length) return;
   resetTextUndoMerge();
-  redoStack.push(snapshot()); proof = undoStack.pop();
-  if (pageIdx >= proof.pages.length) pageIdx = 0;
+  redoStack.push(snapshot()); proof.pages[pageIdx] = undoStack.pop();
   render(); updateHist();
 }
 function redo() {
   if (!redoStack.length) return;
   resetTextUndoMerge();
-  undoStack.push(snapshot()); proof = redoStack.pop();
-  if (pageIdx >= proof.pages.length) pageIdx = 0;
+  undoStack.push(snapshot()); proof.pages[pageIdx] = redoStack.pop();
   render(); updateHist();
 }
 function updateHist() {
@@ -476,7 +476,6 @@ function pageStats() {
 }
 function refreshStats() {
   if (!proof) return;
-  if (typeof gfScheduleSave === "function") gfScheduleSave();   // 编辑→1.5s 防抖写本地缓存+磁盘
   if (!proof.pages.length) {                  // 空页：字数清零
     $("#statPage").textContent = "本页共 0 字"; $("#statDelta").textContent = "改动 0"; return;
   }
@@ -576,4 +575,4 @@ initImporter();   // importer.js：导入素材排序弹窗接线
 initSettings();   // settings.js：渲染设置面板 + 拉取配置 + 实时生效
 gfCheckCapabilitiesOnce();                                  // 缺件即挂横幅，不静默降级
 gfUpdateBlank();                                            // 启动即按当前(空)状态显示占位
-if (typeof gfRestoreLast === "function") gfRestoreLast();   // db.js：从本地缓存恢复上次文档（刷新/重启不丢）
+if (typeof gfRestoreLast === "function") setTimeout(() => gfRestoreLast(), 0);
