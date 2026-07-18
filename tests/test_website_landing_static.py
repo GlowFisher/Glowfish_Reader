@@ -31,6 +31,24 @@ class WebsiteLandingStaticTests(unittest.TestCase):
         self.assertIn('id="feature-panel-export"', html)
         self.assertIn('id="feature-panel-personalization"', html)
 
+    def test_core_capability_panels_use_the_confirmed_example_images(self):
+        html = read_index()
+        expected_panels = {
+            "intro": "识别示例.png",
+            "compare": "对照示例.png",
+            "annotation": "批注示例.png",
+            "export": "导出示例.png",
+            "personalization": "个性设置示例.jpg",
+        }
+
+        for panel_id, filename in expected_panels.items():
+            panel = html.split(f'id="feature-panel-{panel_id}"', 1)[1].split("</article>", 1)[0]
+            self.assertIn(f'src="assets/img/features/{filename}"', panel)
+            self.assertTrue((WEBSITE / "assets" / "img" / "features" / filename).is_file())
+
+        self.assertIn("感谢百度PaddleOCR模型的开源共享", html)
+        self.assertIn('assets/css/base.css?v=20260718a', html)
+
     def test_each_recognition_scene_uses_its_corresponding_sample_image(self):
         html = read_index()
         expected_scenes = {
