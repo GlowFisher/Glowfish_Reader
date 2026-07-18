@@ -29,6 +29,7 @@ import recognize_ppocrv6_onnx
 import ocr_rescue
 import ocr_quality
 from document_repository import DocumentConflictError, DocumentError, DocumentNotFoundError, repository_for_proof
+from document_task_manager import TASK_MANAGER
 import subprocess_env
 from settings_store import load_settings
 from userctx import Ctx, ctx_dep
@@ -862,11 +863,17 @@ async def save_document_meta(req: Request, ctx: Ctx = Depends(ctx_dep)):
 @router.post("/api/document_checkpoint")
 async def document_checkpoint(req: Request, ctx: Ctx = Depends(ctx_dep)):
     body = await req.json()
-    _, repo = _document_repo(ctx, body.get("batch", ""))
-    try:
-        return await anyio.to_thread.run_sync(repo.checkpoint)
-    except DocumentNotFoundError:
-        raise HTTPException(404, "Document not found")
+    batch = safefs.safe_batch(body.get("batch", ""))
+    _, repo = _document_repo(ctx, batch)
+
+    def build_checkpoint(task):
+        task.check_cancelled()
+        repo.checkpoint()
+        task.progress(done=1)
+        return None
+
+    task = TASK_MANAGER.submit(ctx.uid, ctx.work, "checkpoint", [batch], 1, build_checkpoint)
+    return {"job_id": task.task_id, "state": task.state, "kind": task.kind}
 
 @router.get("/api/load")
 def load_existing(batch: str, ctx: Ctx = Depends(ctx_dep)):
