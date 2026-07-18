@@ -69,3 +69,18 @@ async function pagePrev() {
 function gfMarkCurrentPageDirty() {
   if (gfPageSession) gfPageSession.markDirty();
 }
+
+/* Document-wide script conversion is a server-side page job, never a proof upload. */
+async function toggleScript() {
+  if (!proof || !gfPageSession) return;
+  const target = proof.script === "s" ? "t" : "s";
+  toast(target === "t" ? "Converting to traditional..." : "Converting to simplified...");
+  try {
+    await gfPageSession.flushAll();
+    await api("/api/convert", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ batch: gfPageSession.activeBatch, to: target }) });
+    await gfOpenPagedDocument(gfPageSession.activeBatch, pageIdx);
+  } catch (error) {
+    toast("Conversion failed: " + error.message);
+  }
+}
