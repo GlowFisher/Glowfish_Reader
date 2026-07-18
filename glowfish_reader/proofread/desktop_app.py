@@ -227,6 +227,60 @@ def _selftest_ocr():
         return 1
 
 
+def _selftest_ocr_resident():
+    """Exercise the frozen resident worker through a Unicode, spaced, long path."""
+    import json
+    import shutil
+    import tempfile
+    from types import SimpleNamespace
+
+    candidates = (
+        HERE / "assets" / "selftest" / "vertical_cht_clean.png",
+        HERE.parent / "bench" / "fixtures" / "vertical_cht_clean.png",
+    )
+    fixture = next((path for path in candidates if path.is_file()), None)
+    if fixture is None:
+        print("SELFTEST OCR RESIDENT FAIL: fixture missing")
+        return 1
+
+    runner = None
+    try:
+        with tempfile.TemporaryDirectory(prefix="glowfish_resident_") as tmp:
+            root = Path(tmp) / "\u4e2d\u6587 path with spaces" / ("long-path-" * 8)
+            image_dir = root / "\u56fe\u7247 input"
+            image_dir.mkdir(parents=True)
+            shutil.copy2(fixture, image_dir / "\u7e41\u9ad4 sample.png")
+            output = root / "\u8bc6\u522b result.json"
+            progress = root / "\u8fdb\u5ea6 status.json"
+
+            import ocr_component_runtime
+
+            runner = ocr_component_runtime.ComponentOcrEngineRunner()
+            runner(
+                ctx=SimpleNamespace(progress_path=progress),
+                image_dir=image_dir,
+                recog_path=output,
+                engine="ppocrv6_onnx",
+            )
+            result = json.loads(output.read_text(encoding="utf-8"))
+            lines = sum(len(page.get("lines") or ()) for page in result.values())
+            status = runner.status()
+            worker = status.get("worker") or {}
+            if lines < 1 or not worker.get("alive") or not worker.get("pid"):
+                raise RuntimeError(
+                    f"invalid resident result: lines={lines} worker={worker}"
+                )
+            if status.get("one_shot_fallback") or status.get("retry_count") != 0:
+                raise RuntimeError(f"unexpected resident fallback/retry: {status}")
+        print("SELFTEST OCR RESIDENT OK")
+        return 0
+    except Exception as exc:
+        print(f"SELFTEST OCR RESIDENT FAIL: {exc!r}")
+        return 1
+    finally:
+        if runner is not None:
+            runner.shutdown()
+
 def _selftest_release_fixes():
     """冻结版发布闸：验证附带原图导出与持久运行日志确实进入当前构建。"""
     import io
@@ -419,6 +473,8 @@ if __name__ == "__main__":
         sys.exit(_selftest_ocr_deps())
     if arg1 == "--selftest-ocr":
         sys.exit(_selftest_ocr())
+    if arg1 == "--selftest-ocr-resident":
+        sys.exit(_selftest_ocr_resident())
     if arg1 == "--selftest-release-fixes":
         sys.exit(_selftest_release_fixes())
     if arg1 == "--benchmark-ocr-runtime":

@@ -118,6 +118,7 @@ if (Test-Path $frozenExe) {
     Invoke-FrozenGate "service selftest" "--selftest"
     Invoke-FrozenGate "OCR dependency metadata" "--selftest-ocr-deps"
     Invoke-FrozenGate "offline OCR selftest" "--selftest-ocr"
+    Invoke-FrozenGate "resident OCR Unicode path selftest" "--selftest-ocr-resident"
     Invoke-FrozenGate "image export + runtime logging fixes" "--selftest-release-fixes"
   } finally {
     if ($null -eq $previousGateDataRoot) {

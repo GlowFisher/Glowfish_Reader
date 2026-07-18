@@ -13,9 +13,12 @@ def test_release_runs_all_frozen_gates_before_inno_setup():
     service = text.index('Invoke-FrozenGate "service selftest" "--selftest"')
     deps = text.index('Invoke-FrozenGate "OCR dependency metadata" "--selftest-ocr-deps"')
     ocr = text.index('Invoke-FrozenGate "offline OCR selftest" "--selftest-ocr"')
+    resident = text.index(
+        'Invoke-FrozenGate "resident OCR Unicode path selftest" "--selftest-ocr-resident"'
+    )
     iscc = text.index("$isccCandidates")
 
-    assert helper < capabilities < service < deps < ocr < iscc
+    assert helper < capabilities < service < deps < ocr < resident < iscc
     assert "$psi = New-Object System.Diagnostics.ProcessStartInfo" in text
     assert "$p = [System.Diagnostics.Process]::Start($psi)" in text
     assert "$p.WaitForExit()" in text
