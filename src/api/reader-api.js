@@ -11,7 +11,7 @@
     checkpoint: (batch) => http.post("/api/document_checkpoint", { batch }),
     load: (batch) => http.json(`/api/load?batch=${encodeURIComponent(batch)}`),
     notebooks: () => http.json("/api/notebooks"),
-    searchRaw: (options) => http.raw("/api/library_search", options),
+    searchRaw: (options) => http.raw("/api/document_search", options),
     noticesRaw: () => http.raw("/api/notices", { cache: "no-store" }),
     raw: http.raw
   });
