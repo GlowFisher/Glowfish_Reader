@@ -22,6 +22,43 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 
+def _restore_frozen_worker_stdio():
+    """Bind inherited pipes hidden by PyInstaller's windowed bootloader."""
+    if not (
+        getattr(sys, "frozen", False)
+        and os.name == "nt"
+        and "--ocr" in sys.argv
+        and "--serve-worker" in sys.argv
+    ):
+        return
+
+    import ctypes
+    import io
+    import msvcrt
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    get_std_handle = kernel32.GetStdHandle
+    get_std_handle.argtypes = [ctypes.c_ulong]
+    get_std_handle.restype = ctypes.c_void_p
+    invalid = ctypes.c_void_p(-1).value
+
+    def bind(name, handle_id, flags, mode, *, write_through=False):
+        if getattr(sys, name) is not None:
+            return
+        handle = get_std_handle(handle_id)
+        if handle in (None, 0, invalid):
+            raise RuntimeError(f"inherited {name} pipe is unavailable")
+        fd = msvcrt.open_osfhandle(handle, flags)
+        raw = os.fdopen(fd, mode, buffering=0)
+        stream = io.TextIOWrapper(
+            raw, encoding="utf-8", errors="replace", write_through=write_through
+        )
+        setattr(sys, name, stream)
+
+    bind("stdin", -10, os.O_RDONLY, "rb")
+    bind("stdout", -11, os.O_WRONLY, "wb", write_through=True)
+    bind("stderr", -12, os.O_WRONLY, "wb", write_through=True)
+
 def _harden_std():
     """windowed(无控制台) exe 双击时 sys.stdout/err 为 None；uvicorn 日志 / 识别脚本 print
     写 None 会崩溃退出。仅在为 None 时兜底到 devnull（有真实句柄则保留，不影响 --serve 回显）。"""
@@ -32,6 +69,7 @@ def _harden_std():
         sys.stderr = io.TextIOWrapper(open(os.devnull, "wb"), encoding="utf-8")
 
 
+_restore_frozen_worker_stdio()
 _harden_std()
 
 
@@ -234,11 +272,18 @@ def _selftest_ocr_resident():
     import tempfile
     from types import SimpleNamespace
 
+    component_root = os.environ.get("GLOWFISH_OCR_ROOT")
     candidates = (
         HERE / "assets" / "selftest" / "vertical_cht_clean.png",
         HERE.parent / "bench" / "fixtures" / "vertical_cht_clean.png",
+        (
+            Path(component_root) / "bench" / "fixtures" / "vertical_cht_clean.png"
+            if component_root else None
+        ),
     )
-    fixture = next((path for path in candidates if path.is_file()), None)
+    fixture = next(
+        (path for path in candidates if path is not None and path.is_file()), None
+    )
     if fixture is None:
         print("SELFTEST OCR RESIDENT FAIL: fixture missing")
         return 1
