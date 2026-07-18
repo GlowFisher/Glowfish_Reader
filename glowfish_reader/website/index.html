@@ -52,7 +52,7 @@
           <svg class="btn-arrow" aria-hidden="true" viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6"/></svg>
         </a>
       </div>
-      <p class="release-line"><span class="js-ver">最新版 V1.0.0</span> · 注册账号享 14 天免费试用</p>
+      <p class="release-line"><span class="js-ver">最新版 V1.0.0</span> · 注册账号即免费试用</p>
     </div>
 
     <div class="hero-product wrap" id="product-showcase">
@@ -65,7 +65,8 @@
           <button class="is-active" type="button" role="tab" aria-selected="true" aria-controls="feature-panel-intro" data-slide-target="0">精准识别</button>
           <button type="button" role="tab" aria-selected="false" aria-controls="feature-panel-compare" data-slide-target="1">图文对照</button>
           <button type="button" role="tab" aria-selected="false" aria-controls="feature-panel-annotation" data-slide-target="2">校对批注</button>
-          <button type="button" role="tab" aria-selected="false" aria-controls="feature-panel-interaction" data-slide-target="3">流畅交互</button>
+          <button type="button" role="tab" aria-selected="false" aria-controls="feature-panel-export" data-slide-target="3">一键导出</button>
+          <button type="button" role="tab" aria-selected="false" aria-controls="feature-panel-personalization" data-slide-target="4">个性设置</button>
           <button type="button" role="tab" aria-selected="false" data-privacy-jump>数据隐私</button>
         </div>
 
@@ -104,14 +105,25 @@
               </figure>
             </article>
 
-            <article class="feature-slide" id="feature-panel-interaction" role="tabpanel" aria-label="流畅交互">
+            <article class="feature-slide" id="feature-panel-export" role="tabpanel" aria-label="一键导出">
               <div class="feature-slide-copy">
-                <p class="feature-eyebrow">流畅交互</p>
-                <h3>少切换，少打断，适合长时间点校</h3>
-                <p>原图、校订稿、批注和导出入口放在同一工作区里，连续处理多页史料时不需要来回找窗口。</p>
+                <p class="feature-eyebrow">一键导出</p>
+                <h3>完成校对后，直接导出成稿</h3>
+                <p>可按页面或整个笔记本导出 DOCX、TXT、Markdown、CSV 或 ZIP，批注和页码随稿保留。</p>
               </div>
               <figure class="feature-slide-media">
-                <img src="assets/img/shot_workbench.webp" alt="点校工作台把原图、校订稿、批注和导出入口放在同一工作区中" width="2884" height="1644">
+                <img src="assets/img/shot_export.webp" alt="一键导出菜单，支持多种文档格式、批注和页码" width="2884" height="1644">
+              </figure>
+            </article>
+
+            <article class="feature-slide" id="feature-panel-personalization" role="tabpanel" aria-label="个性设置">
+              <div class="feature-slide-copy">
+                <p class="feature-eyebrow">个性设置</p>
+                <h3>按自己的阅读习惯安排工作台</h3>
+                <p>横排与竖排、整页点校与逐行核字、显示主题等选项均可按史料类型和个人习惯调整。</p>
+              </div>
+              <figure class="feature-slide-media">
+                <img src="assets/img/shot_workbench.webp" alt="可按阅读习惯调整的史料点校工作台" width="2884" height="1644">
               </figure>
             </article>
           </div>
@@ -138,32 +150,32 @@
           <div class="feature-track" tabindex="0">
             <article class="feature-slide scene-slide" id="scene-panel-contract" role="tabpanel" aria-label="契约">
               <figure class="feature-slide-media scene-slide-media">
-                <img src="assets/img/shot_boxes.webp" alt="契约类史料识别场景，原件上叠加识别切分框" width="2884" height="1644">
+                <img src="assets/img/scenes/契约示例.png" alt="契约类史料识别场景" width="1920" height="999">
               </figure>
             </article>
             <article class="feature-slide scene-slide" id="scene-panel-genealogy" role="tabpanel" aria-label="族谱">
               <figure class="feature-slide-media scene-slide-media">
-                <img src="assets/img/shot_workbench.webp" alt="族谱类史料识别场景，左侧原件与右侧校订稿并排" width="2884" height="1644">
+                <img src="assets/img/scenes/族谱示例.png" alt="族谱类史料识别场景" width="1920" height="999">
               </figure>
             </article>
-            <article class="feature-slide scene-slide scene-slide-document" id="scene-panel-diary" role="tabpanel" aria-label="日记">
+            <article class="feature-slide scene-slide" id="scene-panel-diary" role="tabpanel" aria-label="日记">
               <figure class="feature-slide-media scene-slide-media">
-                <img src="assets/img/hero_scan.webp" alt="日记手稿识别场景，竖排繁体原件居中展示" width="595" height="983">
+                <img src="assets/img/scenes/日记示例.png" alt="日记类史料识别场景" width="1920" height="999">
               </figure>
             </article>
             <article class="feature-slide scene-slide" id="scene-panel-newspaper" role="tabpanel" aria-label="报纸">
               <figure class="feature-slide-media scene-slide-media">
-                <img src="assets/img/shot_workbench.webp" alt="报纸类史料识别场景，图文对照工作台展示" width="2884" height="1644">
+                <img src="assets/img/scenes/报纸示例.png" alt="报纸类史料识别场景" width="1920" height="999">
               </figure>
             </article>
             <article class="feature-slide scene-slide" id="scene-panel-journal" role="tabpanel" aria-label="期刊">
               <figure class="feature-slide-media scene-slide-media">
-                <img src="assets/img/shot_export.webp" alt="期刊类史料识别场景，点校结果可导出为文档" width="2884" height="1644">
+                <img src="assets/img/scenes/期刊示例.png" alt="期刊类史料识别场景" width="1920" height="999">
               </figure>
             </article>
             <article class="feature-slide scene-slide" id="scene-panel-gazetteer" role="tabpanel" aria-label="地方志">
               <figure class="feature-slide-media scene-slide-media">
-                <img src="assets/img/shot_boxes.webp" alt="地方志类史料识别场景，版面区域可重新框选识别" width="2884" height="1644">
+                <img src="assets/img/scenes/方志示例.png" alt="地方志类史料识别场景" width="1920" height="999">
               </figure>
             </article>
           </div>
@@ -253,7 +265,7 @@
           <span>下载 Windows 版</span>
           <svg class="btn-arrow" aria-hidden="true" viewBox="0 0 24 24"><path d="M5 12h14m-6-6 6 6-6 6"/></svg>
         </a>
-        <p><span class="js-ver">最新版 V1.0.0</span> · 注册账号享 14 天免费试用</p>
+        <p><span class="js-ver">最新版 V1.0.0</span> · 注册账号即免费试用</p>
       </div>
     </div>
     <div class="wrap requirement-grid">
