@@ -1006,13 +1006,35 @@ async def reocr_region(req: Request, ctx: Ctx = Depends(ctx_dep)):
     return {"lines": mapped, "engine": actual_eng}
 
 
+def _convert_document_pages(repo, to: str) -> dict:
+    if to not in {"s", "t"}:
+        raise ValueError("script must be s or t")
+    # Read, transform and commit one page at a time. The document never becomes
+    # a front-end payload and only one page body is held by this worker at once.
+    meta = repo.load_meta()
+    for descriptor in meta.get("pages", []):
+        page_id = descriptor["page_id"]
+        loaded = repo.load_page(page_id)
+        page = loaded["page"]
+        M.convert_proof({"script": meta.get("script", "s"), "pages": [page]}, to)
+        repo.save_page(page_id, page, loaded["revision"])
+    current = repo.load_meta()
+    repo.save_meta({"script": to}, current.get("revision"))
+    # Retain the old-format recovery snapshot without exposing it to the UI.
+    repo.checkpoint()
+    return repo.load_meta()
+
+
 @router.post("/api/convert")
 async def convert(req: Request, ctx: Ctx = Depends(ctx_dep)):
-    """Internal helper."""
+    """Convert a persisted document page by page; legacy proof payloads are ignored."""
     body = await req.json()
-    proof = body["proof"]
-    M.convert_proof(proof, body.get("to", "s"))
-    reg = ctx.reg(safefs.safe_batch(proof.get("batch", "")))
-    if reg:
-        M.save_proof(proof, reg["proof_path"])
-    return {"proof": proof}
+    legacy = body.get("proof") if isinstance(body.get("proof"), dict) else {}
+    batch = body.get("batch") or legacy.get("batch", "")
+    _, repo = _document_repo(ctx, batch)
+    try:
+        meta = await anyio.to_thread.run_sync(lambda: _convert_document_pages(repo, body.get("to", "s")))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    return {"batch": batch, "document_meta": meta,
+            "page_count": len(meta.get("pages", [])), "paged": True}
