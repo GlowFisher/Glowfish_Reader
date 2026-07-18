@@ -797,7 +797,11 @@ async def open_sources(req: Request, ctx: Ctx = Depends(ctx_dep)):
         M.convert_proof(proof, "t")
     M.save_proof(proof, str(bdir / "proof.json"))
     _finish_progress(ctx)
-    return JSONResponse({"proof": proof, "low_conf": M.LOW_CONF, "source": label})
+    meta = repository_for_proof(bdir / "proof.json").load_meta()
+    return JSONResponse({"batch": proof["batch"], "document_meta": meta,
+                         "low_conf": M.LOW_CONF, "source": label,
+                         "page_count": len(meta.get("pages", [])),
+                         "paged": True})
 
 
 def _document_repo(ctx, batch):
