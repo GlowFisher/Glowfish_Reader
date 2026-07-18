@@ -329,6 +329,38 @@ def _queue_docx_export(ctx, body, *, page_marks=False, with_images=False,
 
     return TASK_MANAGER.submit(ctx.uid, ctx.work, "export_docx", batches, total, runner)
 
+def _queue_annotation_export(ctx, body, fmt):
+    from annotation_streaming import page_annotation_paragraphs, write_annotation_events
+
+    batches = body.get("batches") or ([body.get("batch")] if body.get("batch") else [])
+    source_body = {"scope": "notebook", "batches": batches}
+    sources, resolved_batches, total = _docx_sources(ctx, source_body)
+    export_format = fmt if fmt in {"docx", "txt", "md", "csv"} else "docx"
+    name = safefs.coerce_batch(body.get("name") or "annotations")
+    result_name = f"{name}_annotations{_EXT[export_format]}"
+
+    def events():
+        ordinal = 0
+        for batch, repo, _wanted, meta, _proof_path in sources:
+            label = str(meta.get("source") or batch)
+            yield "heading", label, ordinal
+            document_note = str(meta.get("notes") or "").strip()
+            if document_note:
+                yield "annotation", f"Research notes: {document_note}", ordinal
+            for page in repo.iter_pages():
+                for paragraph in page_annotation_paragraphs(page):
+                    yield "annotation", paragraph, ordinal
+                ordinal += 1
+                yield "progress", "", ordinal
+
+    def runner(task):
+        output = task.directory / result_name
+        write_annotation_events(output, events(), fmt=export_format, task=task)
+        return output, output.name
+
+    return TASK_MANAGER.submit(ctx.uid, ctx.work, "export_annotations",
+                               resolved_batches, total, runner)
+
 def _queue_plain_export(ctx, body, fmt, *, page_marks=False, with_images=False,
                         with_annotations=False):
     from plain_streaming import write_plain_pages
@@ -400,6 +432,10 @@ async def export(req: Request, ctx: Ctx = Depends(ctx_dep)):
     if page_marks is None:
         page_marks = st.get("export_page_marks", False)
     if scope == "annotations":
+        if not body.get("proof") and (body.get("batches") or body.get("batch")):
+            task = _queue_annotation_export(ctx, body, fmt)
+            return JSONResponse({"job_id": task.task_id, "state": task.state,
+                                 "kind": task.kind}, status_code=202)
         return _export_annotations(ctx, body, fmt)
     with_annot = bool(body.get("with_annot"))
     if fmt == "docx" and not body.get("proof"):
