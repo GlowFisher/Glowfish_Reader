@@ -242,6 +242,9 @@ async def export(req: Request, ctx: Ctx = Depends(ctx_dep)):
     if scope == "annotations":
         return _export_annotations(ctx, body, fmt)
     with_annot = bool(body.get("with_annot"))
+    streamed = _stream_multi_plain_export(ctx, body, fmt, page_marks, with_image, with_annot)
+    if streamed is not None:
+        return streamed
     if scope == "notebook":
         return _export_notebook(ctx, body, fmt, with_image, page_marks, with_annot)
     if scope == "selected_pages":
@@ -320,3 +323,80 @@ def _stream_plain_export(ctx, body, fmt, page_marks):
                              headers={"Content-Disposition": disposition,
                                       "Access-Control-Expose-Headers": "Content-Disposition"})
 
+
+def _stream_multi_plain_export(ctx, body, fmt, page_marks, with_image, with_annot):
+    """Stream notebook and selected-page plain exports without document aggregation."""
+    scope = body.get("scope")
+    if scope not in {"notebook", "selected_pages"} or fmt not in {"txt", "md", "csv"}:
+        return None
+    if with_image or with_annot:
+        return None
+    from document_repository import DocumentNotFoundError, repository_for_proof
+    if scope == "notebook":
+        requests = [{"batch": batch, "page_ids": None} for batch in (body.get("batches") or [])]
+    else:
+        requests = body.get("selected") or []
+    sources = []
+    for request in requests:
+        batch = safefs.safe_batch(request.get("batch", ""))
+        reg = ctx.reg(batch)
+        if not reg:
+            continue
+        try:
+            repo = repository_for_proof(reg["proof_path"])
+            meta = repo.load_meta()
+        except DocumentNotFoundError:
+            continue
+        wanted = request.get("page_ids")
+        wanted = {str(page_id) for page_id in wanted} if wanted else None
+        sources.append((repo, wanted, meta))
+    if not sources:
+        raise HTTPException(400, "No exportable pages selected")
+
+    def chunks():
+        import csv
+        import io
+        if fmt == "csv":
+            row = io.StringIO()
+            csv.writer(row).writerow(["batch", "page_id", "line_id", "text"])
+            yield row.getvalue().encode("utf-8-sig")
+        ordinal = 0
+        current = []
+        for repo, wanted, meta in sources:
+            for page in repo.iter_pages():
+                if wanted and str(page.get("page_id")) not in wanted:
+                    continue
+                ordinal += 1
+                if fmt == "csv":
+                    line_map = {line.get("id"): line for line in page.get("lines", [])}
+                    for line_id in page.get("order", []):
+                        line = line_map.get(line_id)
+                        if line and not line.get("deleted"):
+                            row = io.StringIO()
+                            csv.writer(row).writerow([meta.get("batch", ""), page.get("page_id", ""), line_id, line.get("text", "")])
+                            yield row.getvalue().encode("utf-8")
+                    continue
+                if page_marks:
+                    if current:
+                        yield ("".join(current) + "\n\n").encode("utf-8")
+                        current = []
+                    label = f"Page {ordinal}"
+                    yield ((f"## {label}\n\n" if fmt == "md" else label + "\n\n")).encode("utf-8")
+                line_map = {line.get("id"): line for line in page.get("lines", [])}
+                for line_id in page.get("order", []):
+                    line = line_map.get(line_id)
+                    if not line or line.get("deleted"):
+                        continue
+                    current.append(line.get("text", ""))
+                    if line.get("para_break"):
+                        yield ("".join(current) + "\n\n").encode("utf-8")
+                        current = []
+        if current:
+            yield ("".join(current) + "\n").encode("utf-8")
+
+    name = safefs.coerce_batch(body.get("name") or "export")
+    disposition = "attachment; filename*=UTF-8''" + quote(name + _EXT[fmt])
+    from fastapi.responses import StreamingResponse
+    return StreamingResponse(chunks(), media_type=_MEDIA[fmt],
+                             headers={"Content-Disposition": disposition,
+                                      "Access-Control-Expose-Headers": "Content-Disposition"})
