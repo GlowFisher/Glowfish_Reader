@@ -102,7 +102,7 @@ class OcrRuntimeMetrics:
             self._values.update(
                 last_event=event,
                 last_engine=engine,
-                last_error_type=type(error).__name__ if error is not None else None,
+                last_error_type=(getattr(error, "error_type", None) or type(error).__name__) if error is not None else None,
                 last_event_at=time.time(),
             )
 
@@ -216,15 +216,18 @@ class ComponentOcrEngineRunner:
             worker_alive = bool(worker and worker.alive())
         except Exception:
             worker_alive = False
+        metrics = self._metrics.snapshot()
         return {
-            "metrics": self._metrics.snapshot(),
+            "metrics": metrics,
             "worker": {
                 "created": worker is not None,
                 "alive": worker_alive,
                 "pid": getattr(worker, "pid", None) if worker is not None else None,
             },
+            "retry_count": int(getattr(service, "_submit_rebuilds", 0) or 0),
+            "one_shot_fallback": bool(metrics.get("fallback_attempts")),
+            "last_error_type": metrics.get("last_error_type"),
         }
-
     def shutdown(self) -> None:
         with self._service_lock:
             service, self._service = self._service, None

@@ -175,27 +175,12 @@ def shutdown_ocr():
     windows_process.shutdown_all()
 
 
-def _run_engine_legacy(ctx: Ctx, image_dir: Path, recog_path: Path, engine: str, job=None):
+def _run_engine_one_shot(ctx: Ctx, image_dir: Path, recog_path: Path, engine: str, job=None):
+    """Start exactly one short-lived OCR process; never create another resident worker."""
     eng2, prefix, params = engines.resolve_engine(engine)
     _CUR_ENGINE["name"] = eng2
     progress_path = job.progress_path if job is not None else ctx.progress_path
     job_id = job.job_id if job is not None else None
-    if job is not None:
-        job.check_cancelled()
-    w = _worker_for(eng2, prefix, params)
-    if w is not None:
-        try:
-            try:
-                w.submit(image_dir, recog_path, progress_path, params, job_id=job_id)
-            except TypeError:
-                # Legacy Paddle worker does not yet expose the job_id keyword.
-                w.submit(image_dir, recog_path, progress_path, params)
-            if recog_path.exists():
-                _stamp_recog_meta(recog_path, eng2)
-                _schedule_worker_idle_close(w)
-                return
-        except Exception:
-            _LOG.exception("Resident worker failed engine=%s job_id=%s", eng2, job_id)
     if job is not None:
         job.check_cancelled()
     cmd = prefix + ["--images", str(image_dir), "--out", str(recog_path),
@@ -203,12 +188,40 @@ def _run_engine_legacy(ctx: Ctx, image_dir: Path, recog_path: Path, engine: str,
     if params:
         cmd += ["--config", json.dumps(params, ensure_ascii=False)]
     _LOG.warning("One-shot fallback started engine=%s job_id=%s", eng2, job_id)
-    r = windows_process.run(cmd, purpose="fallback", job_id=job_id, env=_clean_env(),
-                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
-                            encoding="utf-8", errors="replace")
-    if r.returncode != 0 or not recog_path.exists():
-        raise RuntimeError(f"Recognition failed (engine {eng2}):\n{r.stdout}\n{r.stderr}")
+    result = windows_process.run(
+        cmd, purpose="fallback", job_id=job_id, env=_clean_env(),
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        encoding="utf-8", errors="replace",
+    )
+    if result.returncode != 0 or not recog_path.exists():
+        raise RuntimeError(
+            f"Recognition failed (engine {eng2}):\n{result.stdout}\n{result.stderr}"
+        )
+    _stamp_recog_meta(recog_path, eng2)
 
+
+def _run_engine_legacy(ctx: Ctx, image_dir: Path, recog_path: Path, engine: str, job=None):
+    """Explicit rollback runtime: one legacy resident attempt, then one one-shot."""
+    eng2, prefix, params = engines.resolve_engine(engine)
+    _CUR_ENGINE["name"] = eng2
+    progress_path = job.progress_path if job is not None else ctx.progress_path
+    job_id = job.job_id if job is not None else None
+    if job is not None:
+        job.check_cancelled()
+    worker = _worker_for(eng2, prefix, params)
+    if worker is not None:
+        try:
+            try:
+                worker.submit(image_dir, recog_path, progress_path, params, job_id=job_id)
+            except TypeError:
+                worker.submit(image_dir, recog_path, progress_path, params)
+            if recog_path.exists():
+                _stamp_recog_meta(recog_path, eng2)
+                _schedule_worker_idle_close(worker)
+                return
+        except Exception:
+            _LOG.exception("Resident worker failed engine=%s job_id=%s", eng2, job_id)
+    return _run_engine_one_shot(ctx, image_dir, recog_path, engine, job=job)
 
 def _record_runner_fallback(runner, *, engine, success, error=None):
     observer = getattr(runner, "record_fallback", None)
@@ -236,14 +249,17 @@ def _run_engine(ctx: Ctx, image_dir: Path, recog_path: Path, engine: str, job=No
             _LOG.info("Configured OCR runner declined engine=%s; using legacy runtime", engine)
             fallback_reason = RuntimeError("configured OCR runner declined")
         except Exception as exc:
+            if getattr(exc, "error_type", None) == "ocr_input_unavailable":
+                _LOG.warning("OCR input unavailable engine=%s; fallback suppressed", engine)
+                raise
             fallback_reason = exc
-            _LOG.exception("Configured OCR runner failed engine=%s; using legacy runtime", engine)
+            _LOG.exception("Configured OCR runner failed engine=%s; using one-shot fallback", engine)
         try:
             recog_path.unlink(missing_ok=True)
         except OSError:
             _LOG.warning("Could not discard injected OCR output before legacy fallback: %s", recog_path)
     try:
-        result = _run_engine_legacy(ctx, image_dir, recog_path, engine, job=job)
+        result = _run_engine_one_shot(ctx, image_dir, recog_path, engine, job=job)
     except Exception as exc:
         if runner is not None and fallback_reason is not None:
             _record_runner_fallback(runner, engine=engine, success=False, error=exc)
