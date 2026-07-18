@@ -19,6 +19,9 @@ class WebsiteLandingStaticTests(unittest.TestCase):
         self.assertEqual(html.count("注册账号即免费试用"), 2)
         self.assertNotIn("注册账号享 14 天免费试用", html)
 
+    def test_faq_omits_the_expired_trial_question(self):
+        self.assertNotIn("试用期结束后怎么办？", read_index())
+
     def test_core_capabilities_expose_the_confirmed_tabs(self):
         html = read_index()
 
