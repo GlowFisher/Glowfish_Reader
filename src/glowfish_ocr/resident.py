@@ -276,29 +276,35 @@ class ResidentOcrService:
             validate_ocr_input(request.image_dir, request.output_path, request.progress_path)
             actual, prefix, config = self._resolve(request.engine, request.config)
             worker = self._worker_for(actual, prefix, config)
-            try:
-                worker.submit(
-                    request.image_dir,
-                    request.output_path,
-                    request.progress_path,
-                    config,
-                    job_id=request.job_id,
-                )
-                if not request.output_path.is_file():
-                    raise RuntimeError("resident OCR worker produced no output")
-            except Exception:
+            # A failed submission gets one clean resident rebuild. Startup failures
+            # remain distinct so the host can apply its one-shot fallback policy.
+            for attempt in range(2):
+                try:
+                    worker.submit(
+                        request.image_dir,
+                        request.output_path,
+                        request.progress_path,
+                        config,
+                        job_id=request.job_id,
+                    )
+                    if not request.output_path.is_file():
+                        raise RuntimeError("resident OCR worker produced no output")
+                except Exception:
+                    with self._lock:
+                        if self._worker is worker:
+                            self._close_worker()
+                    if attempt == 0:
+                        worker = self._worker_for(actual, prefix, config)
+                        continue
+                    raise
                 with self._lock:
                     if self._worker is worker:
-                        self._close_worker()
-                raise
-            with self._lock:
-                if self._worker is worker:
-                    self._schedule_idle_close(worker)
-            pages = read_ocr_result(request.output_path)
-            return OcrResult(
-                request.engine, actual, pages, request.output_path
-            )
-
+                        self._schedule_idle_close(worker)
+                pages = read_ocr_result(request.output_path)
+                return OcrResult(
+                    request.engine, actual, pages, request.output_path
+                )
+            raise RuntimeError("resident OCR worker failed after rebuild")
     def recognize(self, request: OcrRequest) -> OcrResult:
         return self.recognize_exact(request)
 
