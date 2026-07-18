@@ -35,10 +35,10 @@ class WebsiteLandingStaticTests(unittest.TestCase):
         html = read_index()
         expected_panels = {
             "intro": "识别示例.png",
-            "compare": "对照示例.png",
+            "compare": "图文对照示例.png",
             "annotation": "批注示例.png",
             "export": "导出示例.png",
-            "personalization": "个性设置示例.jpg",
+            "personalization": "个性设置新版.jpg",
         }
 
         for panel_id, filename in expected_panels.items():
@@ -55,11 +55,14 @@ class WebsiteLandingStaticTests(unittest.TestCase):
         expected_copy = [
             "高精度史料识别、图文对照、支持校对批注、自动标点、一键导出、个性化设置、数据永不上云。",
             "手机号注册即免费试用，到期后续期即可继续使用。",
-            "划选文字即可落批注，同时支持导出 DOCX、TXT、Markdown、CSV 或 ZIP 格式。",
             "原图、文本、注释一键导出史料长编",
             "一键导出原图、识别文本与注释，完整生成可编辑、打印的史料长编 DOCX 文档，也可导出 Markdown 格式，方便 Obsidian 等软件识读。",
             "按自己的习惯安排工作台",
-            "设置区分为通用、底图区、点区设置三块，支持深浅色主题切换、画布切换、模型切换、繁简体转换、自动标点、自动断句、字体切换等功能。",
+            "自由度极高的点校",
+            "点击底图区的“识”直接进入框识模式，可以重新框选，模型自动重新识别一次并加入到对应位置，也可以擦除掉不需要识别的区域。识读区支持整页点校与逐行点校两种模式。",
+            "批注随文，随看随批",
+            "划选文字即可落批注，鼠标移动到文字上方自动浮现。",
+            "设置区分为通用、底图区、点区设置三块，支持深浅色主题切换、画布切换、模型切换、繁简体转换、横竖排转换、自动标点、自动断句、字体切换等功能。",
         ]
         for text in expected_copy:
             self.assertIn(text, html)
