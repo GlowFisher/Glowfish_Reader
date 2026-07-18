@@ -10,6 +10,7 @@ from pathlib import Path
 from fastapi import APIRouter, Request, HTTPException, Depends
 
 import proof_model as M
+from document_repository import repository_for_proof
 import safefs
 from settings_store import DEFAULT_SETTINGS, load_settings, save_settings
 from userctx import Ctx, ctx_dep
@@ -142,7 +143,11 @@ async def copy_batch(req: Request, ctx: Ctx = Depends(ctx_dep)):
     if proof.get("image_dir"):
         proof["image_dir"] = proof["image_dir"].replace(old_img, new_img)
     M.save_proof(proof, proof_path)
-    return {"ok": True, "batch": dst, "proof": proof}
+    # The copied batch is immediately available through the page repository. Do
+    # not return all OCR lines to the browser merely to register it in the tree.
+    meta = repository_for_proof(proof_path).load_meta()
+    return {"ok": True, "batch": dst, "document_meta": meta,
+            "page_count": len(meta.get("pages", [])), "paged": True}
 
 
 # ---- 全库只读搜索 ----
