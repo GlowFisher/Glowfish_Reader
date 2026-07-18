@@ -49,6 +49,27 @@ class WebsiteLandingStaticTests(unittest.TestCase):
         self.assertIn("感谢百度PaddleOCR模型的开源共享", html)
         self.assertIn('assets/css/base.css?v=20260718a', html)
 
+    def test_landing_page_uses_the_confirmed_capability_and_trial_copy(self):
+        html = read_index()
+
+        expected_copy = [
+            "高精度史料识别、图文对照、支持校对批注、自动标点、一键导出、个性化设置、数据永不上云。",
+            "手机号注册即免费试用，到期后续期即可继续使用。",
+            "划选文字即可落批注，同时支持导出 DOCX、TXT、Markdown、CSV 或 ZIP 格式。",
+            "原图、文本、注释一键导出史料长编",
+            "一键导出原图、识别文本与注释，完整生成可编辑、打印的史料长编 DOCX 文档，也可导出 Markdown 格式，方便 Obsidian 等软件识读。",
+            "按自己的习惯安排工作台",
+            "设置区分为通用、底图区、点区设置三块，支持深浅色主题切换、画布切换、模型切换、繁简体转换、自动标点、自动断句、字体切换等功能。",
+        ]
+        for text in expected_copy:
+            self.assertIn(text, html)
+
+    def test_follow_section_uses_the_replacement_wechat_qr_code(self):
+        html = read_index()
+
+        self.assertIn('src="assets/img/qr-wechat-contact.png"', html)
+        self.assertTrue((WEBSITE / "assets" / "img" / "qr-wechat-contact.png").is_file())
+
     def test_each_recognition_scene_uses_its_corresponding_sample_image(self):
         html = read_index()
         expected_scenes = {
