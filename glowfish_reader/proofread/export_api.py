@@ -196,10 +196,19 @@ def _export_notebook(ctx, body, fmt, with_image, page_marks=False, with_annot=Fa
 
 
 def _export_single(ctx, body, fmt, with_image, page_marks=False, with_annot=False):
-    proof = body["proof"]
-    batch = safefs.safe_batch(proof.get("batch", ""))
+    proof = body.get("proof")
+    batch = safefs.safe_batch((proof or {}).get("batch", "") or body.get("batch", ""))
+    if not proof:
+        from document_repository import DocumentNotFoundError, repository_for_proof
+        reg = ctx.reg(batch)
+        if not reg:
+            raise HTTPException(404, "Document not found")
+        try:
+            proof = repository_for_proof(reg["proof_path"]).load_full()
+        except DocumentNotFoundError:
+            raise HTTPException(404, "Document not found")
     reg = ctx.reg(batch)
-    if reg:                                       # 导出前落盘当前 proof
+    if reg and body.get("proof"):                 # 仅兼容旧客户端提交的完整 proof
         M.save_proof(proof, reg["proof_path"])
     target, name = proof, f"{batch}_辑录"
     if body.get("scope") == "selected_pages":
@@ -237,6 +246,6 @@ async def export(req: Request, ctx: Ctx = Depends(ctx_dep)):
         return _export_notebook(ctx, body, fmt, with_image, page_marks, with_annot)
     if scope == "selected_pages":
         return _export_selected(ctx, body, fmt, with_image, page_marks, with_annot)
-    if not body.get("proof"):
+    if not body.get("proof") and not body.get("batch"):
         raise HTTPException(400, "未打开史料")
     return _export_single(ctx, body, fmt, with_image, page_marks, with_annot)
