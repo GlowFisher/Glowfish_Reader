@@ -52,6 +52,9 @@ class DocumentTask:
     finished_at: float | None = None
     cancel_event: threading.Event = field(default_factory=threading.Event)
     future: Future | None = None
+    _status_lock: threading.RLock = field(
+        default_factory=threading.RLock, init=False, repr=False
+    )
 
     @property
     def directory(self) -> Path:
@@ -67,31 +70,35 @@ class DocumentTask:
 
     def progress(self, *, done: int | None = None, total: int | None = None,
                  state: str | None = None, **extra) -> dict:
-        if done is not None:
-            self.done = max(self.done, int(done))
-        if total is not None:
-            self.total = max(0, int(total))
-        if state is not None:
-            self.state = state
-        payload = self.status()
-        payload.update(extra)
-        _atomic_json(self.status_path, payload)
-        return payload
+        # Windows can reject concurrent os.replace calls targeting the same
+        # status file. Serialize both state mutation and durable publication per task.
+        with self._status_lock:
+            if done is not None:
+                self.done = max(self.done, int(done))
+            if total is not None:
+                self.total = max(0, int(total))
+            if state is not None:
+                self.state = state
+            payload = self.status()
+            payload.update(extra)
+            _atomic_json(self.status_path, payload)
+            return payload
 
     def status(self) -> dict:
-        return {
-            "job_id": self.task_id,
-            "kind": self.kind,
-            "batches": list(self.batches),
-            "state": self.state,
-            "done": self.done,
-            "total": self.total,
-            "error": self.error,
-            "result_name": self.result_name,
-            "created_at": self.created_at,
-            "started_at": self.started_at,
-            "finished_at": self.finished_at,
-        }
+        with self._status_lock:
+            return {
+                "job_id": self.task_id,
+                "kind": self.kind,
+                "batches": list(self.batches),
+                "state": self.state,
+                "done": self.done,
+                "total": self.total,
+                "error": self.error,
+                "result_name": self.result_name,
+                "created_at": self.created_at,
+                "started_at": self.started_at,
+                "finished_at": self.finished_at,
+            }
 
 
 TaskRunner = Callable[[DocumentTask], tuple[Path, str] | None]
