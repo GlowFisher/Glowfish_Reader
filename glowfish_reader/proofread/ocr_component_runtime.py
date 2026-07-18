@@ -23,8 +23,11 @@ _LOG = logging.getLogger("glowfish.ocr.component")
 def component_runtime_mode(value: str | None = None) -> str:
     if value is None:
         value = os.environ.get("GLOWFISH_OCR_COMPONENT_RUNTIME")
-    return "component" if str(value or "").strip().lower() in _COMPONENT_VALUES else "legacy"
+    normalized = str(value or "").strip().lower()
+    if normalized in {"legacy", "0", "false", "no", "off"}:
+        return "legacy"
 
+    return "component"
 
 def component_runtime_enabled(value: str | None = None) -> bool:
     return component_runtime_mode(value) == "component"

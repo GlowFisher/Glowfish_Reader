@@ -22,7 +22,7 @@ def reset_runner():
 
 def test_runtime_policy_supports_named_canary_and_rollback_values(monkeypatch):
     monkeypatch.delenv("GLOWFISH_OCR_COMPONENT_RUNTIME", raising=False)
-    assert ocr_component_runtime.component_runtime_mode() == "legacy"
+    assert ocr_component_runtime.component_runtime_mode() == "component"
     assert ocr_component_runtime.component_runtime_mode("component") == "component"
     assert ocr_component_runtime.component_runtime_mode("1") == "component"
     assert ocr_component_runtime.component_runtime_mode("legacy") == "legacy"
