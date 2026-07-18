@@ -43,7 +43,13 @@ class WebsiteLandingStaticTests(unittest.TestCase):
         self.assertIn("border-left: 3px solid #3867ff;", css)
         self.assertIn("background: #e9f1ff;", css)
         self.assertIn("border-top: 1px solid rgba(19, 42, 82, .12);", css)
-        self.assertIn('assets/css/sections.css?v=20260718c', html)
+        self.assertIn('assets/css/sections.css?v=20260718d', html)
+        self.assertIn(
+            ".faq-item {\n"
+            "  border: 1px solid rgba(175, 188, 206, .82);\n"
+            "  border-left: 3px solid #3867ff;",
+            css,
+        )
 
     def test_core_capabilities_expose_the_confirmed_tabs(self):
         html = read_index()
@@ -74,7 +80,7 @@ class WebsiteLandingStaticTests(unittest.TestCase):
 
         self.assertIn("感谢百度PaddleOCR模型的开源共享", html)
         self.assertIn('assets/css/base.css?v=20260718a', html)
-        self.assertIn('assets/css/sections.css?v=20260718c', html)
+        self.assertIn('assets/css/sections.css?v=20260718d', html)
 
     def test_landing_page_uses_the_confirmed_capability_and_trial_copy(self):
         html = read_index()

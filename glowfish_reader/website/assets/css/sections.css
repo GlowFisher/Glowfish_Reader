@@ -1236,6 +1236,7 @@
 
 .faq-item {
   border: 1px solid rgba(175, 188, 206, .82);
+  border-left: 3px solid #3867ff;
   border-radius: 12px;
   background: #f6f9ff;
   box-shadow: 0 12px 30px rgba(13, 31, 51, .04);
@@ -1245,7 +1246,6 @@
 .faq-q {
   margin: 0;
   padding: clamp(17px, 1.9vw, 22px) clamp(20px, 2.2vw, 26px);
-  border-left: 3px solid #3867ff;
   border-radius: 10px 10px 0 0;
   color: #132a52;
   background: #e9f1ff;
