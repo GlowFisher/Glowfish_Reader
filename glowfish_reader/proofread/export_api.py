@@ -11,7 +11,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 from fastapi import APIRouter, Request, HTTPException, Depends
-from fastapi.responses import Response, FileResponse
+from fastapi.responses import Response, FileResponse, JSONResponse
 
 import proof_model as M
 from document_task_manager import TASK_MANAGER
@@ -226,6 +226,109 @@ def _export_single(ctx, body, fmt, with_image, page_marks=False, with_annot=Fals
     return _packaged(name, fmt, data, n, target, with_image)
 
 
+def _docx_sources(ctx, body):
+    """Resolve lightweight repositories/page selections without loading page bodies."""
+    from document_repository import DocumentNotFoundError, repository_for_proof
+
+    scope = body.get("scope", "all")
+    if scope == "notebook":
+        requests = [{"batch": batch, "page_ids": None} for batch in (body.get("batches") or [])]
+    elif scope == "selected_pages":
+        requests = body.get("selected") or []
+        if not requests:
+            raise HTTPException(409, "client_outdated: \u8bf7\u5347\u7ea7\u6216\u91cd\u542f\u5e94\u7528\u540e\u91cd\u65b0\u5bfc\u51fa")
+    else:
+        requests = [{
+            "batch": body.get("batch", ""),
+            "page_ids": [body.get("page_id")] if scope == "page" and body.get("page_id") else None,
+        }]
+
+    sources, batches, total = [], [], 0
+    for request in requests:
+        batch = safefs.safe_batch(request.get("batch", ""))
+        if not batch:
+            continue
+        reg = ctx.reg(batch)
+        if not reg:
+            if scope in {"page", "all"}:
+                raise HTTPException(404, "Document not found")
+            continue
+        try:
+            repo = repository_for_proof(reg["proof_path"])
+            meta = repo.load_meta()
+        except DocumentNotFoundError:
+            if scope in {"page", "all"}:
+                raise HTTPException(404, "Document not found")
+            continue
+        requested = request.get("page_ids")
+        wanted = {str(page_id) for page_id in requested if str(page_id)} if requested else None
+        descriptors = meta.get("pages", [])
+        selected_count = sum(1 for page in descriptors
+                             if wanted is None or str(page.get("page_id")) in wanted)
+        if selected_count:
+            sources.append((batch, repo, wanted, meta, reg["proof_path"]))
+            batches.append(batch)
+            total += selected_count
+    if not sources or not total:
+        raise HTTPException(400, "No exportable pages selected")
+    return sources, batches, total
+
+
+def _docx_page_iterator(sources, *, with_images=False):
+    """Yield cloned pages one at a time, pinning images to each source batch."""
+    for batch, repo, wanted, meta, proof_path in sources:
+        for page in repo.iter_pages():
+            if wanted is not None and str(page.get("page_id")) not in wanted:
+                continue
+            cloned = dict(page)
+            cloned["batch"] = batch
+            if with_images:
+                image = M.resolve_original_page_image(meta, page, proof_path)
+                if not image or not image.exists() or not safefs.within_work(image):
+                    raise FileNotFoundError(
+                        f"export image missing: batch={batch}, page_id={page.get('page_id', '')}"
+                    )
+                cloned["image"] = str(image.resolve())
+            yield cloned
+
+
+def _queue_docx_export(ctx, body, *, page_marks=False, with_images=False,
+                       with_annotations=False):
+    from docx_streaming import write_docx_pages
+
+    sources, batches, total = _docx_sources(ctx, body)
+    scope = body.get("scope", "all")
+    requested_name = safefs.coerce_batch(body.get("name") or batches[0] or "export")
+    if scope == "page":
+        page_id = str(body.get("page_id") or "page")
+        result_stem = safefs.coerce_batch(f"{batches[0]}_{page_id}_\u8f91\u5f55")
+    elif scope == "selected_pages":
+        result_stem = safefs.coerce_batch(f"{requested_name}_{total}\u9875_\u8f91\u5f55")
+    else:
+        result_stem = safefs.coerce_batch(f"{requested_name}_\u8f91\u5f55")
+
+    notes = []
+    for batch, _repo, _wanted, meta, _proof_path in sources:
+        note = str(meta.get("notes") or "").strip()
+        if note:
+            notes.append(f"\u3010{meta.get('source') or batch}\u3011{note}")
+    document_meta = {"batch": requested_name, "notes": "\n\n".join(notes), "image_dir": ""}
+
+    def runner(task):
+        output = task.directory / f"{result_stem}.docx"
+        write_docx_pages(
+            output,
+            document_meta,
+            _docx_page_iterator(sources, with_images=with_images),
+            page_marks=page_marks,
+            with_annotations=with_annotations,
+            with_images=with_images,
+            task=task,
+        )
+        return output, output.name
+
+    return TASK_MANAGER.submit(ctx.uid, ctx.work, "export_docx", batches, total, runner)
+
 @router.post("/api/export")
 async def export(req: Request, ctx: Ctx = Depends(ctx_dep)):
     body = await req.json()
@@ -243,6 +346,12 @@ async def export(req: Request, ctx: Ctx = Depends(ctx_dep)):
     if scope == "annotations":
         return _export_annotations(ctx, body, fmt)
     with_annot = bool(body.get("with_annot"))
+    if fmt == "docx" and not body.get("proof"):
+        task = _queue_docx_export(ctx, body, page_marks=page_marks,
+                                  with_images=bool(with_image),
+                                  with_annotations=with_annot)
+        return JSONResponse({"job_id": task.task_id, "state": task.state,
+                             "kind": task.kind}, status_code=202)
     streamed = _stream_multi_plain_export(ctx, body, fmt, page_marks, with_image, with_annot)
     if streamed is not None:
         return streamed

@@ -17,6 +17,8 @@ def write_docx_pages(output_path: Path, document_meta: dict, pages, *, page_mark
         if task:
             task.check_cancelled()
         page_body, page_notes = M._page_annotated_segments(page)
+        if task:
+            task.progress(done=ordinal)
         if not page_body:
             continue
         if page_count:
@@ -42,8 +44,6 @@ def write_docx_pages(output_path: Path, document_meta: dict, pages, *, page_mark
             for paragraph in M.assemble_paragraphs({**document_meta, "pages": [page]}, page_marks=False):
                 M._add_docx_segments(doc, [(paragraph, False)], font, size_pt, qn, indent)
         page_count += 1
-        if task:
-            task.progress(done=page_count)
     doc_notes = (document_meta.get("notes") or "").strip()
     if with_annotations and doc_notes:
         doc.add_paragraph()
