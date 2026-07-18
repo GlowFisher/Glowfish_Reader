@@ -248,4 +248,75 @@ async def export(req: Request, ctx: Ctx = Depends(ctx_dep)):
         return _export_selected(ctx, body, fmt, with_image, page_marks, with_annot)
     if not body.get("proof") and not body.get("batch"):
         raise HTTPException(400, "未打开史料")
+    streamed = _stream_plain_export(ctx, body, fmt, page_marks)
+    if streamed is not None:
+        return streamed
     return _export_single(ctx, body, fmt, with_image, page_marks, with_annot)
+def _stream_plain_export(ctx, body, fmt, page_marks):
+    """Return a StreamingResponse for plain page-granular exports, or None."""
+    if fmt not in {"txt", "md", "csv"} or body.get("with_image") or body.get("with_annot"):
+        return None
+    batch = safefs.safe_batch(body.get("batch", ""))
+    if not batch:
+        return None
+    reg = ctx.reg(batch)
+    if not reg:
+        raise HTTPException(404, "Document not found")
+    from document_repository import DocumentNotFoundError, repository_for_proof
+    try:
+        repo = repository_for_proof(reg["proof_path"])
+        meta = repo.load_meta()
+    except DocumentNotFoundError:
+        raise HTTPException(404, "Document not found")
+    wanted = {str(body.get("page_id"))} if body.get("scope") == "page" and body.get("page_id") else None
+
+    def chunks():
+        import csv
+        import io
+        if fmt == "csv":
+            row = io.StringIO()
+            writer = csv.writer(row)
+            writer.writerow(["page_id", "line_id", "text"])
+            yield row.getvalue().encode("utf-8-sig")
+            for page in repo.iter_pages():
+                if wanted and page.get("page_id") not in wanted:
+                    continue
+                line_map = {line.get("id"): line for line in page.get("lines", [])}
+                for line_id in page.get("order", []):
+                    line = line_map.get(line_id)
+                    if not line or line.get("deleted"):
+                        continue
+                    row = io.StringIO()
+                    csv.writer(row).writerow([page.get("page_id", ""), line_id, line.get("text", "")])
+                    yield row.getvalue().encode("utf-8")
+            return
+        current = []
+        for ordinal, page in enumerate(repo.iter_pages(), 1):
+            if wanted and page.get("page_id") not in wanted:
+                continue
+            if page_marks:
+                if current:
+                    yield ("".join(current) + "\n\n").encode("utf-8")
+                    current = []
+                label = f"【第{ordinal}页】"
+                yield ((f"## {label}\n\n" if fmt == "md" else label + "\n\n")).encode("utf-8")
+            line_map = {line.get("id"): line for line in page.get("lines", [])}
+            for line_id in page.get("order", []):
+                line = line_map.get(line_id)
+                if not line or line.get("deleted"):
+                    continue
+                current.append(line.get("text", ""))
+                if line.get("para_break"):
+                    yield ("".join(current) + "\n\n").encode("utf-8")
+                    current = []
+        if current:
+            yield ("".join(current) + "\n").encode("utf-8")
+
+    name = safefs.coerce_batch(body.get("name") or meta.get("source") or batch)
+    filename = name + _EXT[fmt]
+    disposition = "attachment; filename*=UTF-8''" + quote(filename)
+    from fastapi.responses import StreamingResponse
+    return StreamingResponse(chunks(), media_type=_MEDIA[fmt],
+                             headers={"Content-Disposition": disposition,
+                                      "Access-Control-Expose-Headers": "Content-Disposition"})
+
