@@ -34,9 +34,10 @@ async function gfOpenPagedDocument(batchName, requestedPage = 0) {
 }
 
 async function applyLoaded(data) {
-  if (!data || !data.proof || !data.proof.batch) throw new Error("missing batch");
+  const batchName = data && (data.batch || (data.proof && data.proof.batch));
+  if (!batchName) throw new Error("missing batch");
   lowConf = data.low_conf || lowConf;
-  return gfOpenPagedDocument(data.proof.batch, 0);
+  return gfOpenPagedDocument(batchName, 0);
 }
 
 async function _gfMovePage(nextIndex) {

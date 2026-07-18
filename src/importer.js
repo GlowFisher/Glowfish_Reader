@@ -368,10 +368,11 @@ async function confirmImportOnce() {
           body: JSON.stringify({ token: impToken, items: g.items, name: g.name,
             request_id: `${confirmImport._requestId}-${gi}`,
             punct_backend: (settings && settings.punct_backend) || "local" }) });
-        if (keepCurrentOpen && typeof nbRegisterProofDoc === "function") nbRegisterProofDoc(data.proof, false, targetNotebookId);
+        const metaProof = { batch: data.batch, source: data.source, pages: (data.document_meta || {}).pages || [] };
+        if (keepCurrentOpen && typeof nbRegisterProofDoc === "function") nbRegisterProofDoc(metaProof, false, targetNotebookId);
         else {
           applyLoaded(data);
-          if (typeof nbRegisterProofDoc === "function") nbRegisterProofDoc(data.proof, true, targetNotebookId);
+          if (typeof nbRegisterProofDoc === "function") nbRegisterProofDoc(metaProof, true, targetNotebookId);
         }
       } catch (e) { fail++; toast("导入失败：" + g.name + "：" + e.message); }
     }
