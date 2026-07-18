@@ -28,6 +28,7 @@ import ocr_atomic
 import recognize_ppocrv6_onnx
 import ocr_rescue
 import ocr_quality
+from document_repository import DocumentConflictError, DocumentError, DocumentNotFoundError, repository_for_proof
 import subprocess_env
 from settings_store import load_settings
 from userctx import Ctx, ctx_dep
@@ -798,6 +799,70 @@ async def open_sources(req: Request, ctx: Ctx = Depends(ctx_dep)):
     _finish_progress(ctx)
     return JSONResponse({"proof": proof, "low_conf": M.LOW_CONF, "source": label})
 
+
+def _document_repo(ctx, batch):
+    reg = ctx.reg(safefs.safe_batch(batch))
+    if not reg:
+        raise HTTPException(404, "Document not found")
+    return reg, repository_for_proof(reg["proof_path"])
+
+
+@router.get("/api/document_meta")
+def document_meta(batch: str, ctx: Ctx = Depends(ctx_dep)):
+    _, repo = _document_repo(ctx, batch)
+    try:
+        return repo.load_meta()
+    except DocumentNotFoundError:
+        raise HTTPException(404, "Document not found")
+
+
+@router.get("/api/document_page")
+def document_page(batch: str, page_id: str, ctx: Ctx = Depends(ctx_dep)):
+    _, repo = _document_repo(ctx, batch)
+    try:
+        return repo.load_page(page_id)
+    except DocumentNotFoundError:
+        raise HTTPException(404, "Page not found")
+
+
+@router.post("/api/save_page")
+async def save_page(req: Request, ctx: Ctx = Depends(ctx_dep)):
+    body = await req.json()
+    batch = body.get("batch", "")
+    page_id = str(body.get("page_id", ""))
+    if not page_id or not isinstance(body.get("page"), dict):
+        raise HTTPException(400, "page_id and page are required")
+    _, repo = _document_repo(ctx, batch)
+    try:
+        result = await anyio.to_thread.run_sync(lambda: repo.save_page(page_id, body["page"], body.get("base_revision", -1)))
+    except DocumentConflictError as exc:
+        raise HTTPException(409, {"error": "revision_conflict", "current_revision": exc.current_revision})
+    return result
+
+
+@router.post("/api/save_document_meta")
+async def save_document_meta(req: Request, ctx: Ctx = Depends(ctx_dep)):
+    body = await req.json()
+    batch = body.get("batch", "")
+    changes = body.get("changes", {})
+    if not isinstance(changes, dict):
+        raise HTTPException(400, "changes must be an object")
+    _, repo = _document_repo(ctx, batch)
+    try:
+        result = await anyio.to_thread.run_sync(lambda: repo.save_meta(changes, body.get("base_revision")))
+    except DocumentConflictError as exc:
+        raise HTTPException(409, {"error": "revision_conflict", "current_revision": exc.current_revision})
+    return result
+
+
+@router.post("/api/document_checkpoint")
+async def document_checkpoint(req: Request, ctx: Ctx = Depends(ctx_dep)):
+    body = await req.json()
+    _, repo = _document_repo(ctx, body.get("batch", ""))
+    try:
+        return await anyio.to_thread.run_sync(repo.checkpoint)
+    except DocumentNotFoundError:
+        raise HTTPException(404, "Document not found")
 
 @router.get("/api/load")
 def load_existing(batch: str, ctx: Ctx = Depends(ctx_dep)):

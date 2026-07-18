@@ -786,16 +786,19 @@ def edit_stats(proof):
 def load_or_build(proof_path, recog_path, batch_name, engine="paddle"):
     """有 proof.json 读之；否则从 recog 建并落盘。"""
     proof_path, recog_path = Path(proof_path), Path(recog_path)
-    if proof_path.exists():
-        proof = json.loads(proof_path.read_text(encoding="utf-8"))
+    from document_repository import repository_for_proof
+    repo = repository_for_proof(proof_path)
+    if proof_path.exists() or repo.meta_path.exists():
+        proof = repo.load_full()
         proof.setdefault("engine", engine)      # 旧档缺字段回填（向后兼容）
         return proof
     recog = json.loads(recog_path.read_text(encoding="utf-8"))
     proof = build_proof(recog, batch_name, engine)
     proof_path.parent.mkdir(parents=True, exist_ok=True)
-    proof_path.write_text(json.dumps(proof, ensure_ascii=False, indent=2), encoding="utf-8")
+    save_proof(proof, proof_path)
     return proof
 
 
 def save_proof(proof, proof_path):
-    Path(proof_path).write_text(json.dumps(proof, ensure_ascii=False, indent=2), encoding="utf-8")
+    from document_repository import repository_for_proof
+    repository_for_proof(proof_path).replace_full(proof, checkpoint=True)
