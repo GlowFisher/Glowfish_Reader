@@ -60,23 +60,17 @@ function nbExportPageLabel(pg, idx) {
 async function nbEnsureExportPages(docId) {
   if (nbExportPageCache[docId]) return nbExportPageCache[docId];
   if (nbExportLoadingDocs[docId]) return nbExportLoadingDocs[docId];
-  nbExportLoadingDocs[docId] = (async () => {
-    let pf = null;
-    if (proof && proof.batch === docId) pf = proof;
-    if (!pf) {
-      try { const rec = await gfGet("proofs", docId); if (rec && rec.proof) pf = rec.proof; } catch (e) {}
-    }
-    if (!pf) {
-      try { const loaded = await api("/api/load?batch=" + encodeURIComponent(docId)); pf = loaded && loaded.proof; } catch (e) {}
-    }
-    const pages = ((pf && pf.pages) || []).map((pg, i) => ({ page_id: pg.page_id, label: nbExportPageLabel(pg, i) }));
+  const task = GlowfishApi.reader.documentMeta(docId).then((meta) => {
+    const pages = (meta.pages || []).map((page, index) => ({
+      page_id: page.page_id,
+      label: nbExportPageLabel(page, index),
+    }));
     nbExportPageCache[docId] = pages;
-    delete nbExportLoadingDocs[docId];
     return pages;
-  })();
-  return nbExportLoadingDocs[docId];
-}
-function nbExportSelectedSet(docId) {
+  }).finally(() => { delete nbExportLoadingDocs[docId]; });
+  nbExportLoadingDocs[docId] = task;
+  return task;
+}function nbExportSelectedSet(docId) {
   if (!nbExportSelectedPages[docId]) nbExportSelectedPages[docId] = {};
   return nbExportSelectedPages[docId];
 }
@@ -479,21 +473,32 @@ function nbMenu(anchor, nb) {
   ]);
 }
 async function nbRenameDoc(docId, name) {
-  const meta = nbTree.documents[docId];
-  if (!meta) return false;
+  const treeMeta = nbTree.documents[docId];
+  if (!treeMeta) return false;
   name = String(name || "").trim();
-  if (!name) { toast("请输入文件名称"); return false; }
-  meta.displayName = name;
-  if (typeof proof !== "undefined" && proof && proof.batch === docId) {
-    proof.source = name;
-    try { await api("/api/save", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ proof }) }); } catch (e) {}
-    try { if (typeof gfCacheProof === "function") await gfCacheProof(); } catch (e) {}
+  if (!name) { toast("\u8bf7\u8f93\u5165\u6587\u4ef6\u540d\u79f0"); return false; }
+  const oldName = treeMeta.displayName;
+  try {
+    if (gfPageSession && gfPageSession.activeBatch === docId) await gfPageSession.flushAll();
+    const documentMeta = (gfPageSession && gfPageSession.activeBatch === docId)
+      ? gfPageSession.documentMeta : await GlowfishApi.reader.documentMeta(docId);
+    const saved = await GlowfishApi.reader.saveDocumentMeta(docId, { source: name }, documentMeta.revision);
+    documentMeta.source = name;
+    documentMeta.revision = saved.revision;
+    treeMeta.displayName = name;
+    if (proof && proof.batch === docId) {
+      proof.source = name;
+      proof.revision = saved.revision;
+    }
+    await nbSaveTree();
+    renderTree();
+    return true;
+  } catch (error) {
+    treeMeta.displayName = oldName;
+    toast("Rename failed: " + error.message);
+    return false;
   }
-  await nbSaveTree();
-  renderTree();
-  return true;
-}
-function nbStartDocNameEdit(input, docId) {
+}function nbStartDocNameEdit(input, docId) {
   const meta = nbTree.documents[docId];
   if (!meta || input.classList.contains("editing")) return;
   const oldName = meta.displayName || docId;
@@ -624,24 +629,12 @@ function nbOpenDoc(id, gotoLast) {
 }
 
 async function nbOpenDocOnce(id, gotoLast) {
-  let loaded = null, diskErr = null;
-  try { loaded = await api("/api/load?batch=" + encodeURIComponent(id)); }
-  catch (e) { diskErr = e; }
-  if (loaded && loaded.proof) {
-    applyLoaded(loaded);
-  } else {
-    let rec = null;
-    try { rec = await gfGet("proofs", id); } catch (e) {}
-    if (rec && rec.proof) {
-      applyLoaded({ proof: rec.proof, low_conf: (typeof lowConf !== "undefined" ? lowConf : 0.85), source: rec.proof.source || id });
-      if (diskErr) toast("已从本地缓存打开；原图目录可能缺失");
-    } else {
-      toast("打开失败：" + (diskErr ? diskErr.message : "文档不存在")); return;
-    }
+  try {
+    await gfOpenPagedDocument(id, gotoLast ? Number.MAX_SAFE_INTEGER : 0);
+  } catch (error) {
+    toast("\u6253\u5f00\u5931\u8d25\uff1a" + error.message);
   }
-  if (gotoLast && proof && proof.pages.length) { pageIdx = proof.pages.length - 1; render(); }
 }
-
 // 导入完成可只登记进左栏，不强行切走当前正在浏览的旧史料。
 function nbRegisterProofDoc(pf, activate, targetNotebookId) {
   if (!pf || !pf.batch) return;
@@ -741,7 +734,6 @@ async function nbDoDelete() {
 }
 async function nbDestroyDoc(id, skipTree) {
   try { await api("/api/delete_batch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ batch: id }) }); } catch (e) {}
-  try { await gfDel("proofs", id); } catch (e) {}
   if (!skipTree) {
     const meta = nbTree.documents[id];
     if (meta) { const nb = nbById(meta.notebookId); if (nb) nb.documentIds = nb.documentIds.filter((x) => x !== id); }
@@ -764,25 +756,24 @@ function nbCloseActive() {
 
 // ---------- 复制副本 ----------
 async function nbDuplicate(nb) {
-  toast("正在复制副本…");
-  const copy = { id: nbId(), name: nb.name + " 副本", tags: (nb.tags || []).slice(), archived: false,
-                 created: Date.now(), updated: Date.now(), order: nbMaxNbOrder() + 1, documentIds: [] };
+  toast("Copying notebook...");
+  const copy = { id: nbId(), name: nb.name + " copy", tags: (nb.tags || []).slice(), archived: false,
+    created: Date.now(), updated: Date.now(), order: nbMaxNbOrder() + 1, documentIds: [] };
   nbTree.notebooks.push(copy);
-  let ord = 0;
+  let order = 0;
   for (const docId of nb.documentIds) {
     try {
-      const r = await api("/api/copy_batch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ batch: docId }) });
-      const src = nbTree.documents[docId] || {};
-      nbTree.documents[r.batch] = { notebookId: copy.id, displayName: src.displayName || r.batch, order: ord++,
-        pageCount: (r.proof.pages || []).length, firstPage: (r.proof.pages || [])[0] && r.proof.pages[0].page_id, createdAt: Date.now() };
-      copy.documentIds.push(r.batch);
-      try { await gfPut("proofs", { batch: r.batch, proof: r.proof, savedAt: Date.now() }); } catch (e) {}
-    } catch (e) {}
+      const result = await api("/api/copy_batch", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ batch: docId }) });
+      const source = nbTree.documents[docId] || {};
+      const meta = result.document_meta || { pages: [] };
+      nbTree.documents[result.batch] = { notebookId: copy.id, displayName: source.displayName || result.batch, order: order++,
+        pageCount: result.page_count || meta.pages.length, firstPage: meta.pages[0] && meta.pages[0].page_id, createdAt: Date.now() };
+      copy.documentIds.push(result.batch);
+    } catch (error) { toast("Copy failed: " + error.message); }
   }
   nbOpenState[copy.id] = true;
-  nbSaveTree(); renderTree(); toast("已复制副本");
+  nbSaveTree(); renderTree(); toast("Copy complete");
 }
-
 // ---------- 导航宽度拖拽 ----------
 function nbInitResize() {
   const bar = document.getElementById("nbResize"), nav = document.getElementById("nbNav");

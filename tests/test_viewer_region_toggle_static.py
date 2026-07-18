@@ -174,13 +174,13 @@ def test_image_load_failure_has_user_visible_toast():
     assert "原图" in app
 
 
-def test_cached_document_open_prefers_disk_load_before_indexeddb_fallback():
+def test_document_open_uses_paged_repository_without_fullproof_fallback():
     notebook = read_static("notebook.js")
-    disk_first = 'loaded = await api("/api/load?batch=" + encodeURIComponent(id))'
-    cache_fallback = 'applyLoaded({ proof: rec.proof'
-    assert disk_first in notebook
-    assert cache_fallback in notebook
-    assert notebook.index(disk_first) < notebook.index(cache_fallback)
+    runtime = read_static("app-page-runtime.js")
+    assert "await gfOpenPagedDocument(id" in notebook
+    assert "new GlowfishPageSession" in runtime
+    assert "/api/load" not in notebook
+    assert 'gfGet("proofs"' not in notebook
 
 def test_collapsed_annotation_panel_shrinks_to_count_badge():
     notebook = read_static("notebook.css")
@@ -376,11 +376,10 @@ def test_notebook_file_inline_rename_without_path_changes():
     assert "background: transparent" in name_rule
     assert ".nb-doc-name.editing" in css
     rename_block = notebook.split("function nbRenameDoc", 1)[1].split("// ", 1)[0]
-    assert "meta.displayName = name;" in rename_block
-    assert "proof.batch === docId" in rename_block
-    assert "proof.source = name;" in rename_block
-    assert 'api("/api/save"' in rename_block
-    assert "gfCacheProof()" in rename_block
+    assert "treeMeta.displayName = name;" in rename_block
+    assert "saveDocumentMeta(docId" in rename_block
+    assert "documentMeta.revision" in rename_block
+    assert "JSON.stringify({ proof" not in rename_block
     assert 'nbAskDelete("doc"' in notebook
 
 

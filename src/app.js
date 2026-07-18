@@ -266,22 +266,23 @@ function updateScriptBtn() {
   if (b && proof) b.textContent = proof.script === "t" ? "繁體" : "简体";
 }
 async function toggleScript() {
-  const to = proof.script === "s" ? "t" : "s";
-  toast(to === "t" ? "转繁体中…" : "转简体中…");
+  if (!proof || !gfPageSession) return;
+  const target = proof.script === "s" ? "t" : "s";
+  toast(target === "t" ? "Converting to traditional..." : "Converting to simplified...");
   try {
-    pushUndo();
-    const r = await api("/api/convert", { method: "POST",
-      headers: { "Content-Type": "application/json" }, body: JSON.stringify({ proof, to }) });
-    proof = r.proof; updateScriptBtn(); renderEditor();
-  } catch (e) { toast("切换失败：" + e.message); }
+    await gfPageSession.flushAll();
+    await api("/api/convert", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ batch: gfPageSession.activeBatch, to: target }) });
+    await gfOpenPagedDocument(gfPageSession.activeBatch, pageIdx);
+  } catch (error) { toast("Conversion failed: " + error.message); }
 }
 
 async function save() {
-  try { await api("/api/save", { method: "POST",
-    headers: { "Content-Type": "application/json" }, body: JSON.stringify({ proof }) });
+  try {
+    await gfAwaitSave();
     refreshStats();
-    if (typeof gfCacheProof === "function") gfCacheProof();   // 磁盘落盘同时并行写本地缓存
-    toast("已保存"); } catch (e) { toast("保存失败：" + e.message); }
+    toast("\u5df2\u4fdd\u5b58");
+  } catch (error) { toast("Save failed: " + error.message); }
 }
 // ===== 顶栏下拉菜单（导出）：锚定按钮下方，点外部 / Esc 关闭 =====
 function positionBarMenu(menu, btn) {
