@@ -7,6 +7,8 @@ import json
 import shutil
 from pathlib import Path
 
+import anyio
+
 from fastapi import APIRouter, Request, HTTPException, Depends
 
 import proof_model as M
@@ -119,36 +121,56 @@ async def delete_batch(req: Request, ctx: Ctx = Depends(ctx_dep)):
     return {"ok": True}
 
 
+def _copy_page_repository(source_dir, destination_dir, destination_batch):
+    """Copy and rebase one page at a time; remove an incomplete destination."""
+    source_dir = Path(source_dir)
+    destination_dir = Path(destination_dir)
+    try:
+        shutil.copytree(source_dir, destination_dir)
+        repo = repository_for_proof(destination_dir / "proof.json")
+        meta = repo.load_meta()
+        source_root = str(source_dir.resolve())
+        destination_root = str(destination_dir.resolve())
+        raw_image_dir = str(meta.get("image_dir") or "")
+        image_dir = raw_image_dir.replace(source_root, destination_root)
+        if not image_dir and (destination_dir / "_src").is_dir():
+            image_dir = str((destination_dir / "_src").resolve())
+
+        def rebase(page, _index):
+            raw_image = str(page.get("image") or "")
+            rebased = raw_image.replace(source_root, destination_root)
+            if rebased == raw_image:
+                return False
+            page["image"] = rebased
+            return True
+
+        return repo.transform_pages(
+            rebase, meta_changes={"batch": destination_batch, "image_dir": image_dir}
+        )
+    except Exception:
+        shutil.rmtree(destination_dir, ignore_errors=True)
+        raise
+
 @router.post("/api/copy_batch")
 async def copy_batch(req: Request, ctx: Ctx = Depends(ctx_dep)):
-    """复制一个文档为新批次。返回新 batch id 与 proof。"""
+    """Copy a document using page repository reads and writes."""
     body = await req.json()
     src = safefs.safe_batch(body.get("batch", ""))
     sdir = ctx.work / src
     if not (sdir / "proof.json").exists():
-        raise HTTPException(404, "源文档不存在")
-    base = safefs.coerce_batch(body.get("new_batch") or (src + "_副本"))
-    dst, i = base, 2
+        raise HTTPException(404, "Source document not found")
+    base = safefs.coerce_batch(body.get("new_batch") or (src + "_copy"))
+    dst, index = base, 2
     while (ctx.work / dst).exists():
-        dst = safefs.coerce_batch(f"{base}{i}"); i += 1
+        dst = safefs.coerce_batch(f"{base}{index}")
+        index += 1
     ddir = ctx.work / dst
-    shutil.copytree(sdir, ddir)
-    proof_path = ddir / "proof.json"
-    proof = json.loads(proof_path.read_text(encoding="utf-8"))
-    proof["batch"] = dst
-    old_img, new_img = str(sdir), str(ddir)       # 旧目录→新目录，重写归一图绝对路径
-    for p in proof.get("pages", []):
-        if p.get("image"):
-            p["image"] = p["image"].replace(old_img, new_img)
-    if proof.get("image_dir"):
-        proof["image_dir"] = proof["image_dir"].replace(old_img, new_img)
-    M.save_proof(proof, proof_path)
-    # The copied batch is immediately available through the page repository. Do
-    # not return all OCR lines to the browser merely to register it in the tree.
-    meta = repository_for_proof(proof_path).load_meta()
+    try:
+        meta = await anyio.to_thread.run_sync(_copy_page_repository, sdir, ddir, dst)
+    except Exception as error:
+        raise HTTPException(500, f"Document copy failed: {error}")
     return {"ok": True, "batch": dst, "document_meta": meta,
             "page_count": len(meta.get("pages", [])), "paged": True}
-
 
 # ---- page-streaming library search ----
 def _paged_library_search(ctx, body):

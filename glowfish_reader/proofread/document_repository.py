@@ -231,6 +231,44 @@ class DocumentRepository:
             _atomic_json(self.meta_path, meta)
             return {"ok": True, "revision": meta["revision"]}
 
+    def transform_pages(self, transform, *, meta_changes: Mapping | None = None,
+                        progress=None) -> dict:
+        """Atomically publish a document-wide transform while holding one page at a time."""
+        created = []
+        with self._lock:
+            meta = copy.deepcopy(self._meta())
+            original_revision = int(meta.get("revision", 0))
+            try:
+                for index, descriptor in enumerate(meta.get("pages", [])):
+                    page = self._read_json(self.batch_dir / descriptor["file"])
+                    changed = transform(page, index)
+                    if changed is not False:
+                        page_revision = int(descriptor.get("revision", 0)) + 1
+                        page["revision"] = page_revision
+                        generation = f"r{page_revision}-{uuid.uuid4().hex[:8]}"
+                        relative = f"pages/{generation}/{_page_key(str(page.get('page_id', '')))}.json"
+                        target = self.batch_dir / relative
+                        _atomic_json(target, page)
+                        created.append(target)
+                        descriptor.update(_page_summary(page))
+                        descriptor.update({"revision": page_revision, "file": relative})
+                    if progress:
+                        progress(index + 1, len(meta.get("pages", [])))
+                for key, value in (meta_changes or {}).items():
+                    if key not in {"pages", "schema_version", "revision"}:
+                        meta[key] = copy.deepcopy(value)
+                meta["revision"] = original_revision + 1
+                _atomic_json(self.meta_path, meta)
+                return self.load_meta()
+            except Exception:
+                for target in created:
+                    try:
+                        target.unlink(missing_ok=True)
+                        target.parent.rmdir()
+                    except OSError:
+                        pass
+                raise
+
     def replace_full(self, proof: Mapping, checkpoint: bool = False) -> dict:
         """Compatibility/import path. New UI code must use save_page/save_meta."""
         with self._lock:

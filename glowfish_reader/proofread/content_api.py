@@ -1016,21 +1016,13 @@ async def reocr_region(req: Request, ctx: Ctx = Depends(ctx_dep)):
 def _convert_document_pages(repo, to: str) -> dict:
     if to not in {"s", "t"}:
         raise ValueError("script must be s or t")
-    # Read, transform and commit one page at a time. The document never becomes
-    # a front-end payload and only one page body is held by this worker at once.
     meta = repo.load_meta()
-    for descriptor in meta.get("pages", []):
-        page_id = descriptor["page_id"]
-        loaded = repo.load_page(page_id)
-        page = loaded["page"]
-        M.convert_proof({"script": meta.get("script", "s"), "pages": [page]}, to)
-        repo.save_page(page_id, page, loaded["revision"])
-    current = repo.load_meta()
-    repo.save_meta({"script": to}, current.get("revision"))
-    # Retain the old-format recovery snapshot without exposing it to the UI.
-    repo.checkpoint()
-    return repo.load_meta()
 
+    def convert_page(page, _index):
+        M.convert_proof({"script": meta.get("script", "s"), "pages": [page]}, to)
+        return True
+
+    return repo.transform_pages(convert_page, meta_changes={"script": to})
 
 @router.post("/api/convert")
 async def convert(req: Request, ctx: Ctx = Depends(ctx_dep)):
