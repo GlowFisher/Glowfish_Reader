@@ -329,6 +329,62 @@ def _queue_docx_export(ctx, body, *, page_marks=False, with_images=False,
 
     return TASK_MANAGER.submit(ctx.uid, ctx.work, "export_docx", batches, total, runner)
 
+def _queue_plain_export(ctx, body, fmt, *, page_marks=False, with_images=False,
+                        with_annotations=False):
+    from plain_streaming import write_plain_pages
+
+    sources, batches, total = _docx_sources(ctx, body)
+    requested_name = safefs.coerce_batch(body.get("name") or batches[0] or "export")
+    scope = body.get("scope", "all")
+    if scope == "page":
+        page_id = str(body.get("page_id") or "page")
+        result_stem = safefs.coerce_batch(f"{batches[0]}_{page_id}_\u8f91\u5f55")
+    elif scope == "selected_pages":
+        result_stem = safefs.coerce_batch(f"{requested_name}_{total}\u9875_\u8f91\u5f55")
+    else:
+        result_stem = safefs.coerce_batch(f"{requested_name}_\u8f91\u5f55")
+    notes = []
+    for batch, _repo, _wanted, meta, _proof_path in sources:
+        note = str(meta.get("notes") or "").strip()
+        if note:
+            notes.append(f"\u3010{meta.get('source') or batch}\u3011{note}")
+    document_meta = {"batch": requested_name, "notes": "\n\n".join(notes)}
+
+    def runner(task):
+        document_path = task.directory / f"{result_stem}{_EXT[fmt]}"
+        if not with_images:
+            write_plain_pages(
+                document_path, document_meta, _docx_page_iterator(sources), fmt=fmt,
+                page_marks=page_marks, with_annotations=with_annotations, task=task,
+            )
+            return document_path, document_path.name
+
+        zip_path = task.directory / f"{result_stem}.zip"
+        zip_temp = zip_path.with_name(f".{zip_path.name}.tmp")
+        try:
+            with zipfile.ZipFile(zip_temp, "w", zipfile.ZIP_DEFLATED) as archive:
+                def add_image(page, ordinal):
+                    task.check_cancelled()
+                    image = Path(page["image"])
+                    archive.write(image, f"{result_stem}_originals/{ordinal:04d}_{image.name}")
+
+                write_plain_pages(
+                    document_path, document_meta,
+                    _docx_page_iterator(sources, with_images=True), fmt=fmt,
+                    page_marks=page_marks, with_annotations=with_annotations,
+                    task=task, on_page=add_image,
+                )
+                task.check_cancelled()
+                archive.write(document_path, document_path.name)
+            zip_temp.replace(zip_path)
+            return zip_path, zip_path.name
+        finally:
+            zip_temp.unlink(missing_ok=True)
+            document_path.unlink(missing_ok=True)
+
+    kind = "export_zip" if with_images else "export_plain"
+    return TASK_MANAGER.submit(ctx.uid, ctx.work, kind, batches, total, runner)
+
 @router.post("/api/export")
 async def export(req: Request, ctx: Ctx = Depends(ctx_dep)):
     body = await req.json()
@@ -350,6 +406,12 @@ async def export(req: Request, ctx: Ctx = Depends(ctx_dep)):
         task = _queue_docx_export(ctx, body, page_marks=page_marks,
                                   with_images=bool(with_image),
                                   with_annotations=with_annot)
+        return JSONResponse({"job_id": task.task_id, "state": task.state,
+                             "kind": task.kind}, status_code=202)
+    if fmt in {"txt", "md", "csv"} and not body.get("proof") and (with_image or with_annot):
+        task = _queue_plain_export(ctx, body, fmt, page_marks=page_marks,
+                                   with_images=bool(with_image),
+                                   with_annotations=with_annot)
         return JSONResponse({"job_id": task.task_id, "state": task.state,
                              "kind": task.kind}, status_code=202)
     streamed = _stream_multi_plain_export(ctx, body, fmt, page_marks, with_image, with_annot)
