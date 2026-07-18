@@ -38,7 +38,7 @@ class SubprocessOcrService:
             self._desktop_executable,
         )
         config = {**defaults, **dict(request.config)}
-        command = [*prefix, "--images", str(request.image_dir), "--out", str(request.output_path), "--config", json.dumps(config, ensure_ascii=False)]
+        command = [*prefix, "--images", str(request.image_dir), "--out", str(request.output_path), "--config", json.dumps(config, ensure_ascii=True)]
         if request.progress_path:
             command.extend(["--progress", str(request.progress_path)])
         return actual, command

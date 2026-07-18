@@ -486,7 +486,7 @@ class OcrWorker:
     def __init__(self, argv_prefix, env=None, model_type="ppocrv6_onnx", config=None):
         self.argv = list(argv_prefix) + ["--serve-worker"]
         if config:
-            self.argv += ["--worker-config", json.dumps(config, ensure_ascii=False)]
+            self.argv += ["--worker-config", json.dumps(config, ensure_ascii=True)]
         self.env = env
         self.model_type = model_type
         self._lock = threading.Lock()
@@ -553,7 +553,7 @@ class OcrWorker:
             job = {"images": str(images), "out": str(out),
                    "progress": str(progress) if progress else None,
                    "config": config or {}, "job_id": job_id}
-            self._p.stdin.write(json.dumps(job, ensure_ascii=False) + "\n")
+            self._p.stdin.write(json.dumps(job, ensure_ascii=True) + "\n")
             self._p.stdin.flush()
             msg = self._read_event(timeout=3600.0)
             if not msg or msg.get("event") != "result":

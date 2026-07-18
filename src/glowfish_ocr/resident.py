@@ -72,7 +72,7 @@ class JsonLineOcrWorker:
     ):
         self.argv = list(argv_prefix) + ["--serve-worker"]
         if config:
-            self.argv += ["--worker-config", json.dumps(config, ensure_ascii=False)]
+            self.argv += ["--worker-config", json.dumps(config, ensure_ascii=True)]
         self.env = env
         self.model_type = model_type
         self._spawn = spawn
@@ -157,7 +157,7 @@ class JsonLineOcrWorker:
                 "config": config or {},
                 "job_id": job_id,
             }
-            self._process.stdin.write(json.dumps(job, ensure_ascii=False) + "\n")
+            self._process.stdin.write(json.dumps(job, ensure_ascii=True) + "\n")
             self._process.stdin.flush()
             event = self._read_event(self._result_timeout)
             if not event or event.get("event") != "result":
