@@ -43,5 +43,6 @@ def test_submit_failure_closes_worker_and_rebuilds_once(tmp_path):
 
     assert result.output_path.is_file()
     assert len(workers) == 2
+    assert service._submit_rebuilds == 1
     assert workers[0].closed == 1
     assert workers[1].closed == 0

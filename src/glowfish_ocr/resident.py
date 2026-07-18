@@ -217,6 +217,7 @@ class ResidentOcrService:
         self._worker_config_key = None
         self._idle_timer = None
         self._circuit_open = False
+        self._submit_rebuilds = 0
 
     def _resolve(self, engine, config=None):
         actual, prefix, defaults = resolve_engine(
@@ -315,6 +316,7 @@ class ResidentOcrService:
                         if self._worker is worker:
                             self._close_worker()
                     if attempt == 0:
+                        self._submit_rebuilds += 1
                         worker = self._worker_for(actual, prefix, config)
                         continue
                     raise
