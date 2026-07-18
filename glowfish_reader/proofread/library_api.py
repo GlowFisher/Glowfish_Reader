@@ -250,3 +250,58 @@ async def library_search(req: Request, ctx: Ctx = Depends(ctx_dep)):
         "skipped": skipped,
         "truncated": truncated,
     }
+@router.post("/api/document_search")
+async def document_search(req: Request, ctx: Ctx = Depends(ctx_dep)):
+    """Page-streaming full-library search for versioned documents."""
+    from document_repository import DocumentError, DocumentRepository
+
+    body = await req.json()
+    query = (body.get("query") or "").strip()
+    if not query:
+        return {"hits": [], "totalHits": 0, "skipped": [], "truncated": False}
+    if len(query) > MAX_QUERY_LEN:
+        raise HTTPException(400, f"Query too long (max {MAX_QUERY_LEN} chars)")
+    limit = min(int(body.get("limit") or MAX_HITS), MAX_HITS)
+    try:
+        notebooks = json.loads(ctx.notebooks_path.read_text(encoding="utf-8")) if ctx.notebooks_path.exists() else _bootstrap_notebooks(ctx)
+    except Exception:
+        notebooks = _bootstrap_notebooks(ctx)
+    docs = notebooks.get("documents") or {}
+    hits, skipped, total_hits = [], [], 0
+    truncated = len(docs) > MAX_BATCHES
+    for batch in list(docs)[:MAX_BATCHES]:
+        if len(hits) >= limit:
+            truncated = True
+            break
+        batch_dir = ctx.work / safefs.safe_batch(batch)
+        try:
+            repo = DocumentRepository(batch_dir)
+            repo.load_meta()
+        except (DocumentError, OSError, ValueError):
+            skipped.append({"batch": batch, "reason": "document storage unavailable"})
+            continue
+        doc_name = (docs.get(batch) or {}).get("displayName") or batch
+        for page_idx, page in enumerate(repo.iter_pages()):
+            if len(hits) >= limit:
+                truncated = True
+                break
+            line_map = {line.get("id"): line for line in page.get("lines", [])}
+            for line_id in page.get("order", []):
+                line = line_map.get(line_id)
+                if not line or line.get("deleted"):
+                    continue
+                text = line.get("text") or ""
+                for start, end in (M.search_in_texts(query, [text])[0] if text else []):
+                    hits.append({
+                        "batch": batch, "docId": batch, "docName": doc_name,
+                        "pageId": page.get("page_id", ""), "pageIdx": page_idx,
+                        "lineId": line_id, "start": start, "end": end, "text": text,
+                    })
+                    total_hits += 1
+                    if len(hits) >= limit:
+                        truncated = True
+                        break
+                if len(hits) >= limit:
+                    break
+    return {"hits": hits, "totalHits": total_hits, "skipped": skipped, "truncated": truncated}
+
