@@ -11,9 +11,10 @@ from pathlib import Path
 from urllib.parse import quote
 
 from fastapi import APIRouter, Request, HTTPException, Depends
-from fastapi.responses import Response
+from fastapi.responses import Response, FileResponse
 
 import proof_model as M
+from document_task_manager import TASK_MANAGER
 import safefs
 from settings_store import load_settings
 from userctx import Ctx, ctx_dep
@@ -400,3 +401,33 @@ def _stream_multi_plain_export(ctx, body, fmt, page_marks, with_image, with_anno
     return StreamingResponse(chunks(), media_type=_MEDIA[fmt],
                              headers={"Content-Disposition": disposition,
                                       "Access-Control-Expose-Headers": "Content-Disposition"})
+@router.get("/api/document_task/{task_id}")
+def document_task_status(task_id: str, ctx: Ctx = Depends(ctx_dep)):
+    task = TASK_MANAGER.get(ctx.uid, task_id)
+    if task is None:
+        raise HTTPException(404, "Document task not found")
+    return task.status()
+
+
+@router.post("/api/document_task/{task_id}/cancel")
+def cancel_document_task(task_id: str, ctx: Ctx = Depends(ctx_dep)):
+    task = TASK_MANAGER.cancel(ctx.uid, task_id)
+    if task is None:
+        raise HTTPException(404, "Document task not found")
+    return task.status()
+
+
+@router.get("/api/document_task/{task_id}/result")
+def document_task_result(task_id: str, ctx: Ctx = Depends(ctx_dep)):
+    task = TASK_MANAGER.get(ctx.uid, task_id)
+    if task is None:
+        raise HTTPException(404, "Document task not found")
+    if task.state != "done" or task.result_path is None or not task.result_path.is_file():
+        raise HTTPException(409, "Document task result is not ready")
+    try:
+        task.result_path.resolve().relative_to(task.directory.resolve())
+    except ValueError:
+        raise HTTPException(500, "Invalid document task result")
+    filename = task.result_name or task.result_path.name
+    return FileResponse(str(task.result_path), filename=filename,
+                        media_type="application/octet-stream")
