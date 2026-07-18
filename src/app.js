@@ -424,7 +424,7 @@ async function doExport(scope) {
   let main, finishSelected = false;
   if (scope === "page") {                                 // 本页
     if (!proof) return toast("未打开史料");
-    main = { scope: "page", proof, page_id: page().page_id, page_marks: pageMarks };
+    main = { scope: "page", batch: proof.batch, page_id: page().page_id, page_marks: pageMarks };
   } else if (scope === "selected_pages") {
     if (typeof nbExportSelectedPayload !== "function") return toast("选择页面功能未初始化");
     const selected = nbExportSelectedPayload();
