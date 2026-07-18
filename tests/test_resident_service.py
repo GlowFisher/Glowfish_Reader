@@ -53,6 +53,7 @@ class FakeTimer:
 def _request(tmp_path, name="one.json", config=None, job_id=None):
     images = tmp_path / "images"
     images.mkdir(exist_ok=True)
+    (images / "page.png").write_bytes(b"fixture")
     return OcrRequest(
         images,
         tmp_path / name,

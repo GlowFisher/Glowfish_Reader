@@ -11,7 +11,7 @@ from typing import Callable
 
 from .contracts import OcrHealth, OcrRequest, OcrResult, RegionOcrRequest
 from .registry import normalize_engine, resolve_engine
-from .validation import read_ocr_result
+from .validation import read_ocr_result, validate_ocr_input
 
 
 SENTINEL = "@@OCR@@"
@@ -273,8 +273,7 @@ class ResidentOcrService:
 
     def recognize_exact(self, request: OcrRequest) -> OcrResult:
         with self._execution_lock:
-            request.image_dir.resolve(strict=True)
-            request.output_path.parent.mkdir(parents=True, exist_ok=True)
+            validate_ocr_input(request.image_dir, request.output_path, request.progress_path)
             actual, prefix, config = self._resolve(request.engine, request.config)
             worker = self._worker_for(actual, prefix, config)
             try:
