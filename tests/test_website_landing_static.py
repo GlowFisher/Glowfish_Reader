@@ -22,6 +22,25 @@ class WebsiteLandingStaticTests(unittest.TestCase):
     def test_faq_omits_the_expired_trial_question(self):
         self.assertNotIn("试用期结束后怎么办？", read_index())
 
+    def test_faq_renders_all_answers_without_disclosure_interaction(self):
+        html = read_index()
+        faq = html.split('<section class="faq" id="faq">', 1)[1].split("</section>", 1)[0]
+
+        self.assertNotIn("<details>", faq)
+        self.assertNotIn("faq-toggle", faq)
+        self.assertEqual(faq.count('<article class="faq-item">'), 3)
+        self.assertEqual(faq.count('<h3 class="faq-q">'), 3)
+        for answer in [
+            "暂时没有。目前仅提供 Windows 10 及以上的 64 位版本",
+            "不依赖。OCR 识别、标点、简繁转换、批注和导出都在本机完成",
+            "没有。史料文件和识别、点校生成的文本只保存在你自己的电脑硬盘",
+        ]:
+            self.assertIn(answer, faq)
+
+        css = (WEBSITE / "assets" / "css" / "sections.css").read_text(encoding="utf-8")
+        self.assertIn('font-family: "PMingLiU", "MingLiU", "新細明體", "新细明体", serif;', css)
+        self.assertIn("font-weight: 700;", css)
+
     def test_core_capabilities_expose_the_confirmed_tabs(self):
         html = read_index()
 
@@ -51,6 +70,7 @@ class WebsiteLandingStaticTests(unittest.TestCase):
 
         self.assertIn("感谢百度PaddleOCR模型的开源共享", html)
         self.assertIn('assets/css/base.css?v=20260718a', html)
+        self.assertIn('assets/css/sections.css?v=20260718b', html)
 
     def test_landing_page_uses_the_confirmed_capability_and_trial_copy(self):
         html = read_index()
