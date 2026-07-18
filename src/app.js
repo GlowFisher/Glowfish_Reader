@@ -374,35 +374,60 @@ async function browserSaveExport(fname, blob) {
   }
 }
 
-async function downloadExport(body) {                    // 单次导出：POST /api/export → 桌面原生保存；浏览器保存选择；最后降级 Downloads
-  const r = await GlowfishApi.export.download(body);
+async function saveExportResponse(r) {
   if (!r.ok) {
     let detail = r.statusText;
-    try { detail = (await r.json()).detail || detail; } catch (_) {}
+    try {
+      const payload = await r.json();
+      detail = payload.detail || payload.error || detail;
+      if (typeof detail !== "string") detail = JSON.stringify(detail);
+    } catch (_) {}
     throw new Error(detail);
   }
   const blob = await r.blob();
-  const fname = parseFilename(r.headers.get("Content-Disposition")) || "导出";
+  const fname = parseFilename(r.headers.get("Content-Disposition")) || "export";
   const n = r.headers.get("X-Doc-Paragraphs");
   const saveExport = gfBridge("save_export");
-  if (saveExport) {                                      // 桌面壳：系统原生保存对话框 + 记忆目录
+  if (saveExport) {
     toast("\u8bf7\u9009\u62e9\u5bfc\u51fa\u6587\u4ef6\u7684\u4fdd\u5b58\u4f4d\u7f6e");
     const b64 = await blobToB64(blob);
     const startDir = (typeof settings !== "undefined" && settings.export_last_dir) || "";
     const res = await saveExport(fname, b64, startDir);
     if (res && res.canceled) return { fname, n, canceled: true };
-    if (!res || !res.ok) throw new Error((res && res.error) || "保存失败");
+    if (!res || !res.ok) throw new Error((res && res.error) || "save failed");
     if (res.dir) saveExportDir(res.dir);
     return { fname, n, path: res.path };
   }
-  const picked = await browserSaveExport(fname, blob);     // 现代浏览器：弹保存文件选择框
+  const picked = await browserSaveExport(fname, blob);
   if (picked && picked.canceled) return { fname, n, canceled: true };
   if (picked && picked.ok) return { fname, n, path: picked.path };
-  const url = URL.createObjectURL(blob);                  // 旧浏览器降级：a 标签落 Downloads
+  const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url; a.download = fname; document.body.appendChild(a); a.click();
   a.remove(); setTimeout(() => URL.revokeObjectURL(url), 2000);
   return { fname, n };
+}
+
+async function downloadExport(body) {
+  const response = await GlowfishApi.export.download(body);
+  if (response.status !== 202) return saveExportResponse(response);
+  if (!response.ok) return saveExportResponse(response);
+
+  const task = await response.json();
+  if (!task || !task.job_id) throw new Error("export task was not created");
+  const cancel = () => GlowfishApi.reader.cancelTask(task.job_id).catch(() => {});
+  const status = await gfWatchDocumentTask(task.job_id, (progress) => {
+    const total = Number(progress.total) || 0;
+    const done = Math.min(Number(progress.done) || 0, total || Number(progress.done) || 0);
+    const suffix = total ? ` ${done}/${total}` : "";
+    toast(`\u6b63\u5728\u540e\u53f0\u5bfc\u51fa${suffix}`, {
+      label: "\u53d6\u6d88", fn: cancel, ms: 24 * 60 * 60 * 1000,
+    });
+  });
+  if (status.state === "cancelled") return { canceled: true, taskCanceled: true };
+  if (status.state !== "done") throw new Error(status.error || `export task ${status.state}`);
+  const result = await GlowfishApi.http.raw(GlowfishApi.reader.taskResultUrl(task.job_id));
+  return saveExportResponse(result);
 }
 async function selectedPagesExportBody(selected, pageMarks) {
   const nb = (typeof nbCur === "function") ? nbCur() : null;
