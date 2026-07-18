@@ -17,6 +17,27 @@ from .validation import read_ocr_result, validate_ocr_input
 SENTINEL = "@@OCR@@"
 
 
+class OcrWorkerError(RuntimeError):
+    """Structured resident-worker failure propagated to the Host runtime."""
+
+    def __init__(self, message, *, error_type="ocr_worker_failed", stage="worker", reason=None):
+        super().__init__(message)
+        self.error_type = str(error_type or "ocr_worker_failed")
+        self.stage = str(stage or "worker")
+        self.reason = str(reason or message)[:500]
+
+    @classmethod
+    def from_event(cls, event):
+        event = event or {}
+        reason = event.get("reason") or event.get("error") or "OCR worker failed"
+        return cls(
+            f"worker OCR failed: {reason}",
+            error_type=event.get("error_type") or "ocr_worker_failed",
+            stage=event.get("stage") or "recognition",
+            reason=reason,
+        )
+
+
 def _default_spawn(argv, **kwargs):
     kwargs.pop("purpose", None)
     kwargs.pop("job_id", None)
@@ -145,7 +166,7 @@ class JsonLineOcrWorker:
             if response_job_id is not None and response_job_id != job_id:
                 raise RuntimeError(f"worker response job mismatch: {response_job_id} != {job_id}")
             if not event.get("ok"):
-                raise RuntimeError(f"worker OCR failed: {event.get('error')}")
+                raise OcrWorkerError.from_event(event)
             return event
 
     def close(self) -> None:

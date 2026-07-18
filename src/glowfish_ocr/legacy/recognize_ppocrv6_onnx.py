@@ -445,7 +445,8 @@ def serve_worker(config=None):
     try:
         engine = _build_engine(config)
     except Exception as exc:
-        _emit({"event": "ready", "ok": False, "error": repr(exc)})
+        _emit({"event": "ready", "ok": False, "error_type": "ocr_worker_start_failed",
+               "stage": "initialization", "reason": str(exc)[:500], "error": repr(exc)})
         return 1
     model_type = ("ppocrv6_onnx_high" if config.get("profile") == "high_accuracy"
                   else "ppocrv6_onnx")
@@ -476,7 +477,9 @@ def serve_worker(config=None):
             _emit({"event": "result", "ok": True, "job_id": job_id,
                    "out": job["out"], "pages": pages, "failed": nfail})
         except Exception as exc:
-            _emit({"event": "result", "ok": False, "job_id": job_id, "error": repr(exc)})
+            _emit({"event": "result", "ok": False, "job_id": job_id,
+                   "error_type": "ocr_worker_job_failed", "stage": "recognition",
+                   "reason": str(exc)[:500], "error": repr(exc)})
     return 0
 
 class OcrWorker:

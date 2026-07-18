@@ -323,7 +323,8 @@ def serve_worker(config=None):
     try:
         engine = _build_engine(config)
     except Exception as exc:
-        _emit({"event": "ready", "ok": False, "error": repr(exc)})
+        _emit({"event": "ready", "ok": False, "error_type": "ocr_worker_start_failed",
+               "stage": "initialization", "reason": str(exc)[:500], "error": repr(exc)})
         return 1
     _emit({"event": "ready", "ok": True, "model_type": "ppocrv6"})
 
@@ -338,8 +339,10 @@ def serve_worker(config=None):
         line = line.strip()
         if not line:
             continue
+        job_id = None
         try:
             job = json.loads(line)
+            job_id = job.get("job_id")
             cfg = job.get("config") or {}
             if cfg != config:
                 engine = _build_engine(cfg)
@@ -347,9 +350,12 @@ def serve_worker(config=None):
             pages, nfail = run_job(
                 engine, job["images"], job["out"], job.get("progress"), log=log, config=cfg
             )
-            _emit({"event": "result", "ok": True, "out": job["out"], "pages": pages, "failed": nfail})
+            _emit({"event": "result", "ok": True, "job_id": job_id,
+                   "out": job["out"], "pages": pages, "failed": nfail})
         except Exception as exc:
-            _emit({"event": "result", "ok": False, "error": repr(exc)})
+            _emit({"event": "result", "ok": False, "job_id": job_id,
+                   "error_type": "ocr_worker_job_failed", "stage": "recognition",
+                   "reason": str(exc)[:500], "error": repr(exc)})
     return 0
 
 
