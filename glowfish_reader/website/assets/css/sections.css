@@ -1237,16 +1237,18 @@
 .faq-item {
   border: 1px solid rgba(175, 188, 206, .82);
   border-radius: 12px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, .98), rgba(248, 252, 255, .94)),
-    #fff;
+  background: #f6f9ff;
   box-shadow: 0 12px 30px rgba(13, 31, 51, .04);
+  overflow: hidden;
 }
 
 .faq-q {
   margin: 0;
   padding: clamp(17px, 1.9vw, 22px) clamp(20px, 2.2vw, 26px);
-  color: var(--ink);
+  border-left: 3px solid #3867ff;
+  border-radius: 10px 10px 0 0;
+  color: #132a52;
+  background: #e9f1ff;
   font-family: "PMingLiU", "MingLiU", "新細明體", "新细明体", serif;
   font-size: clamp(16px, 1.3vw, 18px);
   font-weight: 700;
@@ -1255,6 +1257,8 @@
 
 .faq-answer {
   padding: 0 clamp(20px, 2.2vw, 26px) clamp(18px, 2vw, 22px);
+  border-top: 1px solid rgba(19, 42, 82, .12);
+  background: #fff;
 }
 
 .faq-answer p {

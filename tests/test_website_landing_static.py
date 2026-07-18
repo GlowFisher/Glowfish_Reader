@@ -40,6 +40,10 @@ class WebsiteLandingStaticTests(unittest.TestCase):
         css = (WEBSITE / "assets" / "css" / "sections.css").read_text(encoding="utf-8")
         self.assertIn('font-family: "PMingLiU", "MingLiU", "新細明體", "新细明体", serif;', css)
         self.assertIn("font-weight: 700;", css)
+        self.assertIn("border-left: 3px solid #3867ff;", css)
+        self.assertIn("background: #e9f1ff;", css)
+        self.assertIn("border-top: 1px solid rgba(19, 42, 82, .12);", css)
+        self.assertIn('assets/css/sections.css?v=20260718c', html)
 
     def test_core_capabilities_expose_the_confirmed_tabs(self):
         html = read_index()
@@ -70,7 +74,7 @@ class WebsiteLandingStaticTests(unittest.TestCase):
 
         self.assertIn("感谢百度PaddleOCR模型的开源共享", html)
         self.assertIn('assets/css/base.css?v=20260718a', html)
-        self.assertIn('assets/css/sections.css?v=20260718b', html)
+        self.assertIn('assets/css/sections.css?v=20260718c', html)
 
     def test_landing_page_uses_the_confirmed_capability_and_trial_copy(self):
         html = read_index()
