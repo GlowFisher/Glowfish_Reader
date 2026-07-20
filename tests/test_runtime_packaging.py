@@ -41,3 +41,13 @@ def test_pyinstaller_excludes_development_only_ml_toolchains():
     assert 'part.startswith("torch-") and part.endswith(".dist-info")' in spec
     assert "final_datas = [item for item in a.datas if _keep_packaging_item(item)]" in spec
     assert "exe, final_binaries, final_datas" in spec
+
+
+def test_desktop_requirements_install_metadata_required_by_packaging_gate():
+    root = Path(__file__).resolve().parents[1]
+    requirements = (
+        root / "glowfish_reader" / "proofread" / "requirements-app.txt"
+    ).read_text(encoding="utf-8").lower()
+
+    for distribution in ("jinja2", "regex", "safetensors", "tokenizers"):
+        assert f"{distribution}==" in requirements
