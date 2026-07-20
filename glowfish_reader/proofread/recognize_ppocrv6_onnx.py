@@ -7,7 +7,6 @@ existing OCR engines:
                   "lines": [{"text", "box", "score"}]} }
 """
 import argparse
-import atexit
 import json
 import logging
 import os
@@ -25,6 +24,7 @@ import ocr_enhance
 import ocr_filter
 import ocr_rescue
 import appconfig
+import paddlex_cache
 import windows_process
 
 try:
@@ -34,7 +34,6 @@ except Exception:
     pass
 
 IMG_EXT = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp"}
-_SUBST_DRIVE = None
 ACTIVE_DEVICE = None      # 实际生效的设备（"gpu:0" / "cpu"），供 ocr_meta 回显
 EXPLICIT_DET_CFG = False  # config 里显式定死 text_det_limit_* → 自适应尺度让位
 @dataclass
@@ -59,14 +58,6 @@ class InferenceBudget:
 
 
 
-def _is_ascii_path(path):
-    try:
-        str(path).encode("ascii")
-        return True
-    except UnicodeEncodeError:
-        return False
-
-
 def _ensure_paddlex_env():
     """Set stable local defaults before PaddleOCR/PaddleX is imported."""
     thread_cap = str(min(os.cpu_count() or 1, 8))
@@ -77,35 +68,7 @@ def _ensure_paddlex_env():
     os.environ.setdefault("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", "True")
     os.environ.setdefault("PADDLE_PDX_ENABLE_MKLDNN_BYDEFAULT", "False")
     os.environ.setdefault("FLAGS_use_mkldnn", "false")
-    if os.environ.get("PADDLE_PDX_CACHE_HOME"):
-        return
-    # Keep PaddleX state beside the application data, never beside the executable.
-    # In a frozen install __file__ lives under _internal, so the old relative path
-    # polluted the installation folder.
-    root = Path(appconfig.data_root())
-    cache_rel = Path("paddlex_cache")
-    if _is_ascii_path(root):
-        os.environ["PADDLE_PDX_CACHE_HOME"] = str(root / cache_rel)
-        return
-    if os.name != "nt":
-        os.environ["PADDLE_PDX_CACHE_HOME"] = str(root / cache_rel)
-        return
-    global _SUBST_DRIVE
-    for letter in "ZYXWVUTSRQPONMLKJIH":
-        drive = f"{letter}:"
-        if Path(drive + "\\").exists():
-            continue
-        try:
-            windows_process.run(["subst", drive, str(root)], purpose="subst",
-                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            _SUBST_DRIVE = drive
-            os.environ["PADDLE_PDX_CACHE_HOME"] = str(Path(drive + "\\") / cache_rel)
-            atexit.register(lambda d=drive: windows_process.run(
-                ["subst", d, "/D"], purpose="subst", stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True))
-            return
-        except Exception:
-            continue
-    os.environ["PADDLE_PDX_CACHE_HOME"] = str(root / cache_rel)
+    return paddlex_cache.configure_paddlex_cache(appconfig.data_root())
 
 
 def to_bbox(poly):

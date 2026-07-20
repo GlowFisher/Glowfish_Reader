@@ -31,7 +31,9 @@ def test_release_identity_is_exact_and_consistent():
     assert '$setupBase = "$productName Setup"' in release
     assert '$psi.WorkingDirectory = $distDir' in release
     assert '$env:SHUPAI_DATA_DIR = $gateDataRoot' in release
-    assert 'root = Path(appconfig.data_root())' in (HERE / "recognize_ppocrv6_onnx.py").read_text(encoding="utf-8")
+    assert 'paddlex_cache.configure_paddlex_cache(appconfig.data_root())' in (
+        HERE / "recognize_ppocrv6_onnx.py"
+    ).read_text(encoding="utf-8")
     assert f"StringStruct('ProductName', '{PRODUCT}')" in version_info
     assert f"StringStruct('OriginalFilename', '{PRODUCT}.exe')" in version_info
 

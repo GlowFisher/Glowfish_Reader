@@ -14,6 +14,7 @@ def test_pyinstaller_includes_host_public_package_and_v2_entry():
     assert '"glowfish_ocr", "glowfish_ocr.contracts", "glowfish_ocr.registry"' in spec
     assert '"glowfish_ocr.service", "glowfish_ocr.resident", "glowfish_ocr.validation"' in spec
     assert '"ocr_component_runtime", "ocr_runtime_benchmark", "runtime_status_api", "psutil"' in spec
+    assert '"paddlex_cache", "recognize", "recognize_ppocrv6"' in spec
 
 
 def test_desktop_exposes_structured_ocr_runtime_benchmark():

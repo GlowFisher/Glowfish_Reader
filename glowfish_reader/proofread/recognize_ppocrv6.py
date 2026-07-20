@@ -7,16 +7,16 @@ existing OCR engines:
                   "lines": [{"text", "box", "score"}]} }
 """
 import argparse
-import atexit
 import json
 import os
-import subprocess
 import sys
 import time
 from pathlib import Path
 
+import appconfig
 import ocr_filter
 import ocr_rescue
+import paddlex_cache
 
 try:
     sys.stdout.reconfigure(encoding="utf-8")
@@ -25,17 +25,6 @@ except Exception:
     pass
 
 IMG_EXT = {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp", ".webp"}
-_SUBST_DRIVE = None
-
-
-def _is_ascii_path(path):
-    try:
-        str(path).encode("ascii")
-        return True
-    except UnicodeEncodeError:
-        return False
-
-
 def _ensure_paddlex_env():
     """Set stable local defaults before PaddleOCR/PaddleX is imported."""
     os.environ.setdefault("PADDLE_PDX_MODEL_SOURCE", "huggingface")
@@ -43,32 +32,7 @@ def _ensure_paddlex_env():
     os.environ.setdefault("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", "True")
     os.environ.setdefault("PADDLE_PDX_ENABLE_MKLDNN_BYDEFAULT", "False")
     os.environ.setdefault("FLAGS_use_mkldnn", "false")
-    if os.environ.get("PADDLE_PDX_CACHE_HOME"):
-        return
-    root = Path(__file__).resolve().parents[1]
-    cache_rel = Path("proofread") / "_work" / "paddlex_cache"
-    if _is_ascii_path(root):
-        os.environ["PADDLE_PDX_CACHE_HOME"] = str(root / cache_rel)
-        return
-    if os.name != "nt":
-        os.environ["PADDLE_PDX_CACHE_HOME"] = str(root / cache_rel)
-        return
-    global _SUBST_DRIVE
-    for letter in "ZYXWVUTSRQPONMLKJIH":
-        drive = f"{letter}:"
-        if Path(drive + "\\").exists():
-            continue
-        try:
-            subprocess.run(["subst", drive, str(root)], check=True,
-                           capture_output=True, text=True)
-            _SUBST_DRIVE = drive
-            os.environ["PADDLE_PDX_CACHE_HOME"] = str(Path(drive + "\\") / cache_rel)
-            atexit.register(lambda d=drive: subprocess.run(
-                ["subst", d, "/D"], capture_output=True, text=True))
-            return
-        except Exception:
-            continue
-    os.environ["PADDLE_PDX_CACHE_HOME"] = str(root / cache_rel)
+    return paddlex_cache.configure_paddlex_cache(appconfig.data_root())
 
 
 def to_bbox(poly):
