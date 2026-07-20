@@ -5,6 +5,7 @@ from __future__ import annotations
 import atexit
 import os
 import subprocess
+import uuid
 from functools import partial
 from pathlib import Path
 
@@ -28,6 +29,13 @@ def _is_ascii_path(path: Path) -> bool:
 
 def _ensure_directory(path: Path) -> None:
     path.mkdir(parents=True, exist_ok=True)
+    probe = path / f".glowfish-write-probe-{uuid.uuid4().hex}.tmp"
+    try:
+        with probe.open("xb") as stream:
+            stream.write(b"ok")
+            stream.flush()
+    finally:
+        probe.unlink(missing_ok=True)
 
 
 def _remove_subst(runner, drive: str) -> None:

@@ -89,6 +89,26 @@ def test_valid_explicit_cache_is_preserved(tmp_path):
     assert env["PADDLE_PDX_CACHE_HOME"] == str(explicit)
 
 
+def test_existing_but_unwritable_explicit_cache_falls_back(tmp_path, monkeypatch):
+    explicit = tmp_path / "configured-cache"
+    explicit.mkdir()
+    env = {"PADDLE_PDX_CACHE_HOME": str(explicit)}
+    original_open = Path.open
+
+    def reject_explicit_probe(path, *args, **kwargs):
+        if path.parent == explicit and path.name.startswith(".glowfish-write-probe-"):
+            raise PermissionError(13, "permission denied", str(path))
+        return original_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", reject_explicit_probe)
+    result = configure_paddlex_cache(tmp_path / "fallback", environ=env)
+
+    assert result == tmp_path / "fallback" / "paddlex_cache"
+    assert result.is_dir()
+    assert env["PADDLE_PDX_CACHE_HOME"] == str(result)
+    assert not list(result.glob(".glowfish-write-probe-*"))
+
+
 def test_all_failed_aliases_fall_back_to_unicode_data_root(tmp_path):
     env = {}
 
