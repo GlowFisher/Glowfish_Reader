@@ -371,6 +371,18 @@ svg {
   white-space: nowrap;
 }
 
+.developer-block {
+  display: grid;
+  gap: 2px;
+  justify-items: end;
+}
+
+.acknowledgment-line {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
 .credit-names {
   font-family: "SimSun", "宋体", "Source Han Serif SC", "Noto Serif SC", "Noto Serif CJK SC", serif;
   font-size: clamp(16px, 1.4vw, 18px);
@@ -390,6 +402,10 @@ svg {
   .developer-line {
     text-align: left;
     white-space: normal;
+  }
+
+  .developer-block {
+    justify-items: start;
   }
 }
 
