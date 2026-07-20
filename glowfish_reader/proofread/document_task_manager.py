@@ -77,7 +77,9 @@ class DocumentTask:
                 self.done = max(self.done, int(done))
             if total is not None:
                 self.total = max(0, int(total))
-            if state is not None:
+            if state is not None and not (
+                self.state in TERMINAL_STATES and state not in TERMINAL_STATES
+            ):
                 self.state = state
             payload = self.status()
             payload.update(extra)

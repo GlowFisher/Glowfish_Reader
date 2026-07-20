@@ -1,4 +1,4 @@
-from document_task_manager import DocumentTaskManager
+from document_task_manager import DocumentTask, DocumentTaskManager
 
 
 def test_task_persists_progress_and_result(tmp_path):
@@ -30,5 +30,14 @@ def test_task_cancel_is_cooperative(tmp_path):
     task = manager.submit("user", tmp_path, "checkpoint", ["batch"], 1, runner)
     manager.cancel("user", task.task_id)
     task.future.result(timeout=5)
+
+    assert task.status()["state"] == "cancelled"
+
+
+def test_terminal_task_state_is_not_overwritten_by_late_cancellation(tmp_path):
+    task = DocumentTask("user", tmp_path, "checkpoint", ("batch",), 1)
+
+    task.progress(state="cancelled")
+    task.progress(state="cancelling")
 
     assert task.status()["state"] == "cancelled"
