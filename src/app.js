@@ -91,6 +91,10 @@ let importTimer = null;
 let importSawOcr = false;
 let impSamples = [];                                      // [{t, done}] 估时采样（每次 done 前进时记录）
 const ENGINE_LABEL = { ppocrv6: "PP-OCRv6", onnx: "快速", paddle: "Paddle" };
+Object.assign(ENGINE_LABEL, {
+  ppocrv6_onnx: "\u5feb\u901f",
+  ppocrv6_onnx_high: "\u9ad8\u7cbe\u5ea6"
+});
 
 function gfEta(total) {
   // 滑动窗口（最近 ≤6 个页完成事件）估算剩余时间；样本不足返回 ""
@@ -162,6 +166,7 @@ function startImportProgress() {
       else box.textContent = "正在导入素材：准备中…";
       if (p.fallback) gfShowFallbackBanner(p.fallback);
       if (p.failed && p.failed.length) {                  // 失败文件不阻断，仅小字提示
+        p.failed = p.failed.map((f, index) => typeof f === "string" ? { idx: index + 1, name: f } : f);
         fail.textContent = "⚠ " + p.failed.map((f) => `第${f.idx}页 ${f.name} 导入失败`).join("；");
         fail.classList.remove("hidden");
       }
@@ -187,6 +192,81 @@ function stopImportProgress() {
   gfCheckFallbackOnce();                                  // 收尾再查一次：回退多在末段写入，别错过
   setTimeout(() => $("#importFail").classList.add("hidden"), 6000);   // 失败提示再留几秒供查看
 }
+async function gfCheckRecoverableImports() {
+  if (document.getElementById("ocrRecoveryModal")) return;
+  let jobs = [];
+  try {
+    const response = await GlowfishApi.ocr.recoverable();
+    jobs = Array.isArray(response.jobs) ? response.jobs : [];
+  } catch (error) {
+    return;
+  }
+  if (!jobs.length) return;
+  const job = jobs[0];
+  const overlay = document.createElement("div");
+  overlay.id = "ocrRecoveryModal";
+  overlay.style.cssText = "position:fixed;inset:0;z-index:9300;display:flex;align-items:center;" +
+    "justify-content:center;background:rgba(0,0,0,.48);padding:24px";
+  const card = document.createElement("div");
+  card.style.cssText = "width:min(520px,100%);padding:22px;border-radius:14px;background:var(--panel,#fff);" +
+    "color:var(--text,#222);box-shadow:0 18px 50px rgba(0,0,0,.35)";
+  const title = document.createElement("h3");
+  title.textContent = "\u53d1\u73b0\u672a\u5b8c\u6210\u7684\u6587\u5b57\u8bc6\u522b\u4efb\u52a1";
+  title.style.margin = "0 0 12px";
+  const detail = document.createElement("p");
+  detail.textContent = `${job.source || job.batch}\uff1a\u5df2\u5b8c\u6210 ${job.completed || 0}/${job.total || 0} \u9875\u3002\u53ef\u4ece\u65ad\u70b9\u7ee7\u7eed\uff0c\u5df2\u8bc6\u522b\u9875\u4e0d\u4f1a\u91cd\u590d\u5904\u7406\u3002`;
+  detail.style.cssText = "line-height:1.7;margin:0 0 18px";
+  const actions = document.createElement("div");
+  actions.style.cssText = "display:flex;justify-content:flex-end;gap:10px";
+  const later = document.createElement("button");
+  later.className = "btn btn-sec";
+  later.textContent = "\u7a0d\u540e\u5904\u7406";
+  const discard = document.createElement("button");
+  discard.className = "btn btn-sec";
+  discard.textContent = "\u653e\u5f03\u4efb\u52a1";
+  const resume = document.createElement("button");
+  resume.className = "btn btn-main";
+  resume.textContent = "\u7ee7\u7eed\u8bc6\u522b";
+  actions.append(later, discard, resume);
+  card.append(title, detail, actions);
+  overlay.appendChild(card);
+  document.body.appendChild(overlay);
+
+  later.onclick = () => overlay.remove();
+  discard.onclick = async () => {
+    if (!confirm("\u653e\u5f03\u540e\u5c06\u5220\u9664\u8be5\u672a\u5b8c\u6210\u5bfc\u5165\u53ca\u5df2\u4fdd\u5b58\u7684\u65ad\u70b9\uff0c\u662f\u5426\u7ee7\u7eed\uff1f")) return;
+    later.disabled = discard.disabled = resume.disabled = true;
+    try {
+      await GlowfishApi.ocr.discard(job.job_id);
+      overlay.remove();
+      toast("\u5df2\u653e\u5f03\u672a\u5b8c\u6210\u7684\u8bc6\u522b\u4efb\u52a1");
+    } catch (error) {
+      later.disabled = discard.disabled = resume.disabled = false;
+      toast("\u65e0\u6cd5\u653e\u5f03\u8be5\u4efb\u52a1\uff1a" + error.message);
+    }
+  };
+  resume.onclick = async () => {
+    later.disabled = discard.disabled = resume.disabled = true;
+    try {
+      const started = await GlowfishApi.ocr.resume(job.job_id);
+      overlay.remove();
+      startImportProgress();
+      const status = await gfWatchDocumentTask(started.task_id);
+      if (status.state !== "done") {
+        throw new Error(status.error || `OCR task ${status.state}`);
+      }
+      stopImportProgress();
+      toast("\u65ad\u70b9\u8bc6\u522b\u5df2\u5b8c\u6210");
+      setTimeout(() => location.reload(), 700);
+    } catch (error) {
+      stopImportProgress();
+      overlay.remove();
+      toast("\u7ee7\u7eed\u8bc6\u522b\u5931\u8d25\uff1a" + error.message);
+      setTimeout(gfCheckRecoverableImports, 500);
+    }
+  };
+}
+
 
 // 新增二：删除当前页（受「删除行二次确认」开关控制；可撤销）
 function delCurrentPage() {
@@ -602,3 +682,4 @@ initSettings();   // settings.js：渲染设置面板 + 拉取配置 + 实时生
 gfCheckCapabilitiesOnce();                                  // 缺件即挂横幅，不静默降级
 gfUpdateBlank();                                            // 启动即按当前(空)状态显示占位
 if (typeof gfRestoreLast === "function") setTimeout(() => gfRestoreLast(), 0);
+setTimeout(gfCheckRecoverableImports, 250);
