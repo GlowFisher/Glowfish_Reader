@@ -24,6 +24,35 @@ paths:
       operationId: importProgress
       responses:
         "200": {description: OCR progress}
+  /api/import_jobs/recoverable:
+    get:
+      operationId: listRecoverableImportJobs
+      responses:
+        "200": {description: Recoverable OCR jobs}
+  /api/import_jobs/{job_id}/resume:
+    post:
+      operationId: resumeImportJob
+      parameters:
+        - in: path
+          name: job_id
+          required: true
+          schema: {type: string}
+      responses:
+        "200": {description: OCR job resumed}
+        "404": {description: Recoverable OCR job not found}
+        "409": {description: OCR job is already running or no longer resumable}
+  /api/import_jobs/{job_id}:
+    delete:
+      operationId: discardImportJob
+      parameters:
+        - in: path
+          name: job_id
+          required: true
+          schema: {type: string}
+      responses:
+        "200": {description: Recoverable OCR job discarded}
+        "404": {description: Recoverable OCR job not found}
+        "409": {description: OCR job is currently running}
   /api/save:
     post:
       operationId: saveProof

@@ -35,8 +35,19 @@ class ContractTests(unittest.TestCase):
         host = (ROOT / "openapi" / "host.v1.yaml").read_text(encoding="utf-8")
         for endpoint in ["/account/register/phone", "/account/login/password", "/account/check", "/account/logout", "/account/sms/send", "/account/password/reset"]:
             self.assertIn(endpoint + ":", account)
-        for endpoint in ["/health", "/api/me", "/api/open", "/api/import_progress", "/api/save", "/api/reocr_region", "/api/export"]:
+        for endpoint in ["/health", "/api/me", "/api/open", "/api/import_progress",
+                         "/api/import_jobs/recoverable", "/api/import_jobs/{job_id}/resume",
+                         "/api/import_jobs/{job_id}", "/api/save", "/api/reocr_region", "/api/export"]:
             self.assertIn(endpoint + ":", host)
+
+    def test_recovery_types_are_exported(self):
+        from glowfish_contracts import OcrProgress, RecoverableOcrJob
+
+        self.assertIn("completed_by_engine", OcrProgress.__annotations__)
+        self.assertEqual(
+            {"job_id", "batch", "source", "completed", "total", "engine", "updated_at", "failed_pages"},
+            RecoverableOcrJob.__required_keys__,
+        )
 
 
 if __name__ == "__main__":
