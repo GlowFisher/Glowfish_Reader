@@ -1,8 +1,8 @@
 {
   "schema_version": 1,
   "host_version": "1.0.1",
-  "contracts": {"version": "1.0.0", "commit": "d44d623ab893795b58a1e39ad1f003329940dd45"},
-  "ui": {"version": "1.0.0", "commit": "92358b3def0c5be49fcbd3cb45bfb32b1cc9a3b4"},
-  "ocr": {"version": "1.2.0", "commit": "fb33b657421eeb5779ebe5cea4e0bcb6d1106792"},
-  "account": {"version": "1.0.0", "commit": "bf96938bea7a37fd26f27d0c9f190cf423e7f9ee"}
+  "contracts": {"version": "1.0.0", "commit": "1b223868f69c7410774514e0200e17c1595f23cb"},
+  "ui": {"version": "1.0.0", "commit": "f2079536936afca767f6f97abc162ce332546f13"},
+  "ocr": {"version": "1.2.0", "commit": "40dcd5eceb6e39c4f676b1c18a340921e2d433c0"},
+  "account": {"version": "1.0.0", "commit": "ac75208502b08eb47cd13adccba32e5f326c9f0b"}
 }
