@@ -15,7 +15,7 @@ def ui_dist() -> Path:
     candidates.append(here / "ui_dist")
     if workspace:
         candidates.append(Path(workspace) / "ui" / "dist")
-    else:
+    elif len(here.parents) > 2:
         candidates.append(here.parents[2] / "ui" / "dist")
     for candidate in candidates:
         manifest = candidate / "manifest.json"
