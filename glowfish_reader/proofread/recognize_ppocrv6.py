@@ -12,6 +12,8 @@ import os
 import sys
 import time
 from pathlib import Path
+from glowfish_ocr.checkpoint import OcrCheckpoint
+
 
 import appconfig
 import ocr_filter
@@ -273,6 +275,95 @@ def run_job(engine, images, out, progress=None, log=print, config=None):
     wp("done", len(imgs), len(imgs))
     return len(recog), len(failed)
 
+def _run_checkpoint_job(
+    engine, images, out, progress=None, log=print, config=None,
+    checkpoint_dir=None, job_id=None, attempt=1,
+):
+    imgs = _list_images(images)
+    if not imgs:
+        raise FileNotFoundError(f"No images found: {images}")
+    cfg = dict(config or {})
+    column_rescue = bool(cfg.get("column_rescue", True))
+    actual_engine = "ppocrv6"
+    checkpoint = OcrCheckpoint(
+        checkpoint_dir,
+        imgs,
+        requested_engine=actual_engine,
+        config=cfg,
+        job_id=job_id,
+        attempt=attempt,
+    )
+    recog = checkpoint.load_pages()
+    resumed = bool(recog)
+    failed = []
+
+    def wp(phase, current=None):
+        if not progress:
+            return
+        payload = {
+            "phase": phase,
+            "done": len(checkpoint.load_pages()),
+            "total": len(imgs),
+            "failed": failed,
+            "engine": actual_engine,
+            "attempt": max(1, int(attempt or 1)),
+            "resumed": resumed,
+        }
+        payload.update(checkpoint.progress())
+        if current:
+            payload["current"] = current
+            payload["current_page"] = current
+        try:
+            target = Path(progress)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            temporary = target.with_suffix(target.suffix + ".tmp")
+            with open(temporary, "w", encoding="utf-8") as stream:
+                json.dump(payload, stream, ensure_ascii=False)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, target)
+        except Exception:
+            pass
+
+    wp("load")
+    for idx, img in enumerate(imgs):
+        pid = img.stem
+        if pid in recog:
+            wp("ocr", img.name)
+            continue
+        started = time.perf_counter()
+        try:
+            page = recognize_one(
+                engine, img, checkpoint.images_dir, column_rescue=column_rescue
+            )
+            elapsed = time.perf_counter() - started
+            page.setdefault("ocr_meta", {})["page_seconds"] = round(elapsed, 2)
+            checkpoint.record_success(
+                pid, page, engine=actual_engine, attempt=attempt
+            )
+            recog[pid] = page
+            log(
+                f"  {pid}: {len(page['lines'])} lines "
+                f"({page['width']}x{page['height']})"
+            )
+            log(f"@@PAGE_SECONDS={pid}:{elapsed:.2f}@@")
+        except Exception as exc:
+            log(f"  FAIL {pid}: {exc!r}")
+            failed.append({"name": img.name, "idx": idx + 1})
+            checkpoint.record_failure(
+                pid, exc, engine=actual_engine, attempt=attempt
+            )
+        wp("ocr", img.name)
+
+    missing = [img.stem for img in imgs if img.stem not in checkpoint.load_pages()]
+    if missing:
+        wp("failed")
+        raise RuntimeError(f"OCR pages failed: {len(missing)}")
+    pages = checkpoint.materialize(Path(out))
+    wp("done")
+    return len(pages), len(failed)
+
+
 # Worker protocol for resident OCR jobs.
 SENTINEL = "@@OCR@@"
 
@@ -308,9 +399,23 @@ def serve_worker(config=None):
             if cfg != config:
                 engine = _build_engine(cfg)
                 config = dict(cfg)
-            pages, nfail = run_job(
-                engine, job["images"], job["out"], job.get("progress"), log=log, config=cfg
-            )
+            if job.get("checkpoint_dir"):
+                pages, nfail = _run_checkpoint_job(
+                    engine,
+                    job["images"],
+                    job["out"],
+                    job.get("progress"),
+                    log=log,
+                    config=cfg,
+                    checkpoint_dir=job["checkpoint_dir"],
+                    job_id=job_id,
+                    attempt=job.get("attempt") or 1,
+                )
+            else:
+                pages, nfail = run_job(
+                    engine, job["images"], job["out"], job.get("progress"),
+                    log=log, config=cfg,
+                )
             _emit({"event": "result", "ok": True, "out": job["out"], "pages": pages, "failed": nfail})
         except Exception as exc:
             _emit({"event": "result", "ok": False, "error": repr(exc)})

@@ -23,6 +23,7 @@ def test_component_runner_reuses_service_and_forwards_job_metadata(tmp_path):
         job_id="job-1",
         progress_path=tmp_path / "job-progress.json",
         check_cancelled=check_cancelled,
+        checkpoint_dir=tmp_path / "_ocr_checkpoint",
     )
 
     class Service:
@@ -67,6 +68,7 @@ def test_component_runner_reuses_service_and_forwards_job_metadata(tmp_path):
     assert captured["request"].progress_path == job.progress_path
     assert captured["request"].job_id == "job-1"
     assert captured["prewarm"] == "ppocrv6_onnx_high"
+    assert captured["request"].checkpoint_dir == job.checkpoint_dir
     assert output.exists()
     assert cancel_checks == [True, True]
     assert factory_calls == [job]

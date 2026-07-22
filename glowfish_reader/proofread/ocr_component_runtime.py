@@ -152,6 +152,7 @@ class ComponentOcrEngineRunner:
             engine=engine,
             progress_path=Path(progress_path),
             job_id=getattr(job, "job_id", None),
+            checkpoint_dir=getattr(job, "checkpoint_dir", None),
         )
         try:
             self._service_for(job).recognize_exact(request)

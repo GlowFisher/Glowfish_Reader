@@ -22,6 +22,7 @@ import ingest
 import engines
 import safefs
 import recognize_ppocrv6
+import ocr_recovery
 import ocr_job_manager
 import windows_process
 import ocr_atomic
@@ -41,6 +42,8 @@ _LOG = logging.getLogger("glowfish.ocr")
 # comment
 _WORKER_IDLE_TIMER = None
 # comment
+_RECOVERY_RUNNING = set()
+_RECOVERY_LOCK = threading.RLock()
 _WORKER = None
 _WORKER_LOCK = threading.Lock()
 _CUR_ENGINE = {"name": None}
@@ -254,6 +257,16 @@ def _run_engine(ctx: Ctx, image_dir: Path, recog_path: Path, engine: str, job=No
                 raise
             fallback_reason = exc
             _LOG.exception("Configured OCR runner failed engine=%s; using one-shot fallback", engine)
+        checkpoint_pages = (
+            getattr(job, "checkpoint_dir", Path()) / "pages"
+            if job is not None else None
+        )
+        if checkpoint_pages and checkpoint_pages.is_dir() and any(checkpoint_pages.glob("*.json")):
+            _LOG.warning(
+                "Preserving partial checkpoint; suppressing whole-batch one-shot retry engine=%s",
+                engine,
+            )
+            raise fallback_reason
         try:
             recog_path.unlink(missing_ok=True)
         except OSError:
@@ -728,10 +741,122 @@ def import_progress(ctx: Ctx = Depends(ctx_dep)):
     active = ocr_job_manager.JOB_MANAGER.status(ctx.uid, active_only=True)
     if active:
         return active
+    recoverable = ocr_recovery.discover(ctx.work)
+    if recoverable:
+        latest = recoverable[0]
+        return {
+            "phase": "interrupted",
+            "done": latest["completed"],
+            "completed": latest["completed"],
+            "total": latest["total"],
+            "engine": latest["engine"],
+            "job_id": latest["job_id"],
+            "batch": latest["batch"],
+            "last_checkpoint_at": latest["updated_at"],
+            "completed_by_engine": latest["completed_by_engine"],
+            "failed": latest["failed_pages"],
+            "resumed": True,
+        }
     p = ctx.read_progress()
     if isinstance(p, dict) and _CUR_ENGINE["name"]:
         p.setdefault("engine", _CUR_ENGINE["name"])   # 閸撳秶顏弰鍓с仛瑜版挸澧犲鏇熸惛閿涘牓鐝划缍盠/韫囶偊鈧噦绱?
     return p
+@router.get("/api/import_jobs/recoverable")
+def recoverable_import_jobs(ctx: Ctx = Depends(ctx_dep)):
+    return {"jobs": ocr_recovery.discover(ctx.work)}
+
+
+@router.post("/api/import_jobs/{job_id}/resume")
+def resume_import_job(job_id: str, ctx: Ctx = Depends(ctx_dep)):
+    found = ocr_recovery.find(ctx.work, job_id)
+    if found is None:
+        raise HTTPException(404, "Recoverable OCR job not found")
+    batch_dir, record = found
+    recovery_summary = ocr_recovery.summarize(batch_dir, record) or {}
+    _LOG.info(
+        "ocr_recovery_resume_requested job_id=%s batch=%s completed=%s total=%s",
+        job_id, batch_dir.name, recovery_summary.get("completed", 0),
+        recovery_summary.get("total", 0),
+    )
+    active = ocr_job_manager.JOB_MANAGER.status(ctx.uid, active_only=True)
+    if active and active.get("batch") == batch_dir.name:
+        raise HTTPException(409, "OCR job is already running")
+    with _RECOVERY_LOCK:
+        if job_id in _RECOVERY_RUNNING:
+            raise HTTPException(409, "OCR job is already running")
+        _RECOVERY_RUNNING.add(job_id)
+    src_dir = batch_dir / "_src"
+    if not src_dir.is_dir():
+        with _RECOVERY_LOCK:
+            _RECOVERY_RUNNING.discard(job_id)
+        raise HTTPException(409, "OCR source pages are unavailable")
+    ocr_recovery.mark_status(batch_dir, "running", error=None)
+
+    def execute(task):
+        try:
+            proof = _load_proof(
+                ctx,
+                batch_dir.name,
+                src_dir,
+                record.get("source") or record["batch"],
+                engine=record.get("engine") or None,
+                request_id=record.get("request_id") or job_id,
+            )
+            punct_backend = record.get("punct_backend") or "off"
+            if punct_backend != "off":
+                _ai_punctuate(proof, punct_backend)
+            if record.get("default_script") == "t" and proof.get("script") != "t":
+                M.convert_proof(proof, "t")
+            M.save_proof(proof, str(batch_dir / "proof.json"))
+            _finish_progress(ctx)
+            shutil.rmtree(ocr_recovery.checkpoint_dir(batch_dir), ignore_errors=True)
+            task.progress(done=int(record.get("total") or 0))
+        except Exception as exc:
+            _LOG.exception("ocr_recovery_resume_failed job_id=%s batch=%s", job_id, batch_dir.name)
+            ocr_recovery.mark_status(
+                batch_dir,
+                "recoverable",
+                error=f"{type(exc).__name__}: {exc}"[:500],
+            )
+            raise
+        finally:
+            with _RECOVERY_LOCK:
+                _RECOVERY_RUNNING.discard(job_id)
+
+    task = TASK_MANAGER.submit(
+        ctx.uid,
+        ctx.work,
+        "ocr_resume",
+        [batch_dir.name],
+        int(record.get("total") or 0),
+        execute,
+    )
+    summary = ocr_recovery.summarize(batch_dir, record) or {}
+    summary.update(task_id=task.task_id, status="running")
+    return summary
+
+
+@router.delete("/api/import_jobs/{job_id}")
+def discard_import_job(job_id: str, ctx: Ctx = Depends(ctx_dep)):
+    found = ocr_recovery.find(ctx.work, job_id)
+    if found is None:
+        raise HTTPException(404, "Recoverable OCR job not found")
+    batch_dir, record = found
+    active = ocr_job_manager.JOB_MANAGER.status(ctx.uid, active_only=True)
+    if active and active.get("batch") == batch_dir.name:
+        raise HTTPException(409, "OCR job is currently running")
+    with _RECOVERY_LOCK:
+        if job_id in _RECOVERY_RUNNING:
+            raise HTTPException(409, "OCR job is currently running")
+    try:
+        batch_dir.resolve().relative_to(ctx.work.resolve())
+    except ValueError:
+        raise HTTPException(400, "Invalid OCR job path")
+    shutil.rmtree(batch_dir)
+    _LOG.info("ocr_recovery_discarded job_id=%s batch=%s", job_id, batch_dir.name)
+    return {"ok": True, "job_id": job_id, "batch": batch_dir.name}
+
+
 
 
 def _derive_batch(items):
@@ -773,6 +898,24 @@ async def open_sources(req: Request, ctx: Ctx = Depends(ctx_dep)):
         (batch, label), split = _derive_batch(items), False
     bdir = ctx.work / batch
     if bdir.exists():
+        recovery = ocr_recovery.load_record(bdir)
+        if recovery is not None:
+            try:
+                same_source = (
+                    recovery.get("source_fingerprint")
+                    == ocr_recovery.source_fingerprint(abs_items)
+                )
+            except OSError:
+                same_source = False
+            if same_source:
+                raise HTTPException(
+                    409,
+                    {
+                        "code": "ocr_recoverable",
+                        "job_id": recovery.get("job_id"),
+                        "batch": recovery.get("batch") or batch,
+                    },
+                )
         # comment
         pf = bdir / "proof.json"
         same = False
@@ -804,6 +947,26 @@ async def open_sources(req: Request, ctx: Ctx = Depends(ctx_dep)):
     if not files:
         raise HTTPException(400, "No supported image or PDF files found")
     st = load_settings(ctx)
+    selected_engine = engines.engine_name(st.get("engine_pref") or None)
+    selected_punct = _resolve_punct_backend(body, st)
+    request_id = body.get("request_id") or uuid.uuid4().hex
+    body["request_id"] = request_id
+    recovery_record = ocr_recovery.create_record(
+        bdir,
+        batch=batch,
+        source=label,
+        engine=selected_engine,
+        request_id=request_id,
+        source_items=abs_items,
+        total=len(files),
+        punct_backend=selected_punct,
+        default_script=st.get("default_script") or "s",
+    )
+    _LOG.info(
+        "ocr_checkpoint_created job_id=%s batch=%s total=%s engine=%s",
+        recovery_record["job_id"], batch, len(files), selected_engine,
+    )
+    ocr_recovery.mark_status(bdir, "running")
     proof = await anyio.to_thread.run_sync(lambda: _load_proof(ctx, batch, src_dir, label, request_id=body.get("request_id"),
                         engine=st.get("engine_pref") or None)   # 閻劍鍩涘鏇熸惛閸嬪繐銈介敍鍫⑩敄=姒涙顓绘妯肩翱閿?
     )
@@ -813,6 +976,7 @@ async def open_sources(req: Request, ctx: Ctx = Depends(ctx_dep)):
     if st.get("default_script") == "t" and proof.get("script") != "t":
         M.convert_proof(proof, "t")
     M.save_proof(proof, str(bdir / "proof.json"))
+    shutil.rmtree(ocr_recovery.checkpoint_dir(bdir), ignore_errors=True)
     _finish_progress(ctx)
     meta = repository_for_proof(bdir / "proof.json").load_meta()
     return JSONResponse({"batch": proof["batch"], "document_meta": meta,

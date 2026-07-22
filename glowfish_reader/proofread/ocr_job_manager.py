@@ -46,6 +46,10 @@ class OcrJob:
         return self.output_path.parent / "_ocr_jobs" / self.job_id
 
     @property
+    def checkpoint_dir(self):
+        return self.output_path.parent / "_ocr_checkpoint"
+
+    @property
     def progress_path(self):
         return self.directory / "progress.json"
 
@@ -69,6 +73,7 @@ class OcrJob:
         payload = {
             "job_id": self.job_id,
             "request_id": self.request_id,
+            "batch": self.output_path.parent.name,
             "phase": self.state,
             "done": done if done is not None else self._percent,
             "total": total if total is not None else 100,
@@ -91,6 +96,7 @@ class OcrJob:
         payload.update({
             "job_id": self.job_id,
             "request_id": self.request_id,
+            "batch": self.output_path.parent.name,
             "engine": self.engine,
             "waiters": self.waiters,
         })
