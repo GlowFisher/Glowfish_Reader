@@ -68,7 +68,7 @@ class JsonLineOcrWorker:
         spawn=_default_spawn,
         terminate=_default_terminate,
         ready_timeout=120.0,
-        result_timeout=3600.0,
+        result_timeout=900.0,
     ):
         self.argv = list(argv_prefix) + ["--serve-worker"]
         if config:
@@ -146,7 +146,39 @@ class JsonLineOcrWorker:
         except queue.Empty as exc:
             raise TimeoutError(f"worker response timeout after {timeout}s") from exc
 
-    def submit(self, images, out, progress=None, config=None, job_id=None):
+    @staticmethod
+    def _progress_stamp(progress):
+        if not progress:
+            return None
+        try:
+            stat = Path(progress).stat()
+            return stat.st_mtime_ns, stat.st_size
+        except OSError:
+            return None
+
+    def _read_result_event(self, progress):
+        last_activity = time.monotonic()
+        progress_stamp = self._progress_stamp(progress)
+        while True:
+            remaining = self._result_timeout - (time.monotonic() - last_activity)
+            if remaining <= 0:
+                raise TimeoutError(
+                    f"worker inactivity timeout after {self._result_timeout}s"
+                )
+            try:
+                return self._events.get(timeout=min(1.0, remaining))
+            except queue.Empty:
+                if not self.alive():
+                    raise RuntimeError("worker exited before producing a result")
+                current_stamp = self._progress_stamp(progress)
+                if current_stamp is not None and current_stamp != progress_stamp:
+                    progress_stamp = current_stamp
+                    last_activity = time.monotonic()
+
+    def submit(
+        self, images, out, progress=None, config=None, job_id=None,
+        checkpoint_dir=None, attempt=1,
+    ):
         with self._lock:
             if not self.alive():
                 raise RuntimeError("worker is not running")
@@ -156,10 +188,12 @@ class JsonLineOcrWorker:
                 "progress": str(progress) if progress else None,
                 "config": config or {},
                 "job_id": job_id,
+                "checkpoint_dir": str(checkpoint_dir) if checkpoint_dir else None,
+                "attempt": max(1, int(attempt or 1)),
             }
             self._process.stdin.write(json.dumps(job, ensure_ascii=True) + "\n")
             self._process.stdin.flush()
-            event = self._read_event(self._result_timeout)
+            event = self._read_result_event(progress)
             if not event or event.get("event") != "result":
                 raise RuntimeError(f"worker protocol error: {event}")
             response_job_id = event.get("job_id")
@@ -302,13 +336,26 @@ class ResidentOcrService:
             # remain distinct so the host can apply its one-shot fallback policy.
             for attempt in range(2):
                 try:
-                    worker.submit(
-                        request.image_dir,
-                        request.output_path,
-                        request.progress_path,
-                        config,
-                        job_id=request.job_id,
-                    )
+                    try:
+                        worker.submit(
+                            request.image_dir,
+                            request.output_path,
+                            request.progress_path,
+                            config,
+                            job_id=request.job_id,
+                            checkpoint_dir=request.checkpoint_dir,
+                            attempt=request.attempt + attempt,
+                        )
+                    except TypeError as exc:
+                        if "checkpoint_dir" not in str(exc):
+                            raise
+                        worker.submit(
+                            request.image_dir,
+                            request.output_path,
+                            request.progress_path,
+                            config,
+                            job_id=request.job_id,
+                        )
                     if not request.output_path.is_file():
                         raise RuntimeError("resident OCR worker produced no output")
                 except Exception:

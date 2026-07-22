@@ -14,6 +14,8 @@ class OcrRequest:
     config: Mapping[str, Any] = field(default_factory=dict)
     timeout_seconds: float | None = None
     job_id: str | None = None
+    checkpoint_dir: Path | None = None
+    attempt: int = 1
 
 
 @dataclass(frozen=True)
