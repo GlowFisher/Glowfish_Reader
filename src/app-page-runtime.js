@@ -2,13 +2,34 @@
 /* Compatibility bridge: legacy renderer sees only the active page body. */
 let gfPageSession = null;
 let _gfOpenToken = 0;
+let _gfMoveToken = 0;
+let _gfMoveBusy = false;
+const _gfBusyReasons = new Set();
 
-function _gfActivatePage(item) {
-  const meta = gfPageSession.documentMeta;
-  pageIdx = gfPageSession.pageIdx;
+function gfSetDocumentBusy(reason, isBusy) {
+  if (isBusy) _gfBusyReasons.add(reason);
+  else _gfBusyReasons.delete(reason);
+  const busy = _gfBusyReasons.size > 0;
+  document.body.classList.toggle("gf-document-loading", busy);
+  for (const id of ["prevPage", "nextPage", "scriptBtn", "saveBtn"]) {
+    const control = document.querySelector("#" + id);
+    if (control) control.disabled = busy;
+  }
+}
+
+function _gfInvalidatePageMoves() {
+  _gfMoveToken++;
+  _gfMoveBusy = false;
+  gfSetDocumentBusy("page", false);
+}
+
+function _gfActivatePage(item, session = gfPageSession) {
+  if (!session || session !== gfPageSession) return false;
+  const meta = session.documentMeta;
+  pageIdx = session.pageIdx;
   proof = { ...meta, pages: meta.pages.map((descriptor) => ({ ...descriptor })) };
   proof.pages[pageIdx] = item.page;
-  batch = gfPageSession.activeBatch;
+  batch = session.activeBatch;
   imgVer = Date.now();
   undoStack = []; redoStack = []; updateHist();
   updateScriptBtn();
@@ -21,16 +42,22 @@ function _gfActivatePage(item) {
   render();
   if (typeof gfCacheProof === "function") gfCacheProof();
   if (typeof nbOnDocLoaded === "function") nbOnDocLoaded();
+  return true;
 }
 
 async function gfOpenPagedDocument(batchName, requestedPage = 0) {
   const token = ++_gfOpenToken;
+  _gfInvalidatePageMoves();
+  gfSetDocumentBusy("open", true);
   const session = new GlowfishPageSession(GlowfishApi.reader);
-  const item = await session.open(batchName, requestedPage);
-  if (token !== _gfOpenToken) return false;
-  gfPageSession = session;
-  _gfActivatePage(item);
-  return true;
+  try {
+    const item = await session.open(batchName, requestedPage);
+    if (token !== _gfOpenToken) return false;
+    gfPageSession = session;
+    return _gfActivatePage(item, session);
+  } finally {
+    if (token === _gfOpenToken) gfSetDocumentBusy("open", false);
+  }
 }
 
 async function applyLoaded(data) {
@@ -41,12 +68,24 @@ async function applyLoaded(data) {
 }
 
 async function _gfMovePage(nextIndex) {
-  if (!gfPageSession) return;
+  if (!gfPageSession || _gfMoveBusy) return false;
+  const session = gfPageSession;
+  const token = ++_gfMoveToken;
+  _gfMoveBusy = true;
+  gfSetDocumentBusy("page", true);
   try {
-    const item = await gfPageSession.goto(nextIndex);
-    _gfActivatePage(item);
+    const item = await session.goto(nextIndex);
+    if (token !== _gfMoveToken || session !== gfPageSession) return false;
+    return _gfActivatePage(item, session);
   } catch (error) {
-    toast("页面保存或加载失败：" + error.message);
+    if (token === _gfMoveToken && session === gfPageSession)
+      toast("\u9875\u9762\u4fdd\u5b58\u6216\u52a0\u8f7d\u5931\u8d25\uff1a" + error.message);
+    return false;
+  } finally {
+    if (token === _gfMoveToken) {
+      _gfMoveBusy = false;
+      gfSetDocumentBusy("page", false);
+    }
   }
 }
 
@@ -73,14 +112,27 @@ function gfMarkCurrentPageDirty() {
 /* Document-wide script conversion is a server-side page job, never a proof upload. */
 async function toggleScript() {
   if (!proof || !gfPageSession) return;
+  const session = gfPageSession;
   const target = proof.script === "s" ? "t" : "s";
   toast(target === "t" ? "Converting to traditional..." : "Converting to simplified...");
+  gfSetDocumentBusy("convert", true);
   try {
-    await gfPageSession.flushAll();
+    await session.flushAll();
+    if (session !== gfPageSession) return;
     await api("/api/convert", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ batch: gfPageSession.activeBatch, to: target }) });
-    await gfOpenPagedDocument(gfPageSession.activeBatch, pageIdx);
+      body: JSON.stringify({ batch: session.activeBatch, to: target }) });
+    if (session !== gfPageSession) return;
+    await gfOpenPagedDocument(session.activeBatch, pageIdx);
   } catch (error) {
     toast("Conversion failed: " + error.message);
+  } finally {
+    gfSetDocumentBusy("convert", false);
   }
+}
+
+/* Paging and script conversion controls are owned by this runtime. */
+if (typeof bindClick === "function") {
+  bindClick("prevPage", pagePrev);
+  bindClick("nextPage", pageNext);
+  bindClick("scriptBtn", toggleScript);
 }

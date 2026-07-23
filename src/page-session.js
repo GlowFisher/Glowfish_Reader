@@ -26,10 +26,25 @@
       return this.documentMeta && this.documentMeta.pages[this.pageIdx] && this.documentMeta.pages[this.pageIdx].page_id;
     }
 
+    _validatedPageItem(loaded, pageId) {
+      const fail = (detail) => {
+        throw new Error(`页面数据结构不完整：${pageId} ${detail}`);
+      };
+      if (!loaded || typeof loaded !== "object" || !loaded.page || typeof loaded.page !== "object")
+        fail("缺少 page 对象");
+      if (String(loaded.page.page_id || "") !== String(pageId))
+        fail("页面标识不匹配");
+      if (!Array.isArray(loaded.page.lines))
+        fail("缺少 lines 数组");
+      if (!Array.isArray(loaded.page.order))
+        fail("缺少 order 数组");
+      return { page: loaded.page, revision: loaded.revision };
+    }
+
     async page(pageId) {
       if (this.pageCache.has(pageId)) return this.pageCache.get(pageId);
       const loaded = await this.api.documentPage(this.activeBatch, pageId);
-      const item = { page: loaded.page, revision: loaded.revision };
+      const item = this._validatedPageItem(loaded, pageId);
       this.pageCache.set(pageId, item);
       this._evict();
       return item;
@@ -37,8 +52,15 @@
 
     async goto(index) {
       await this.flushCurrent();
+      const previousIndex = this.pageIdx;
       this.pageIdx = Math.max(0, Math.min(index, this.documentMeta.pages.length - 1));
-      const current = await this.page(this.currentId());
+      let current;
+      try {
+        current = await this.page(this.currentId());
+      } catch (error) {
+        this.pageIdx = previousIndex;
+        throw error;
+      }
       this._prefetchAdjacent();
       return current;
     }

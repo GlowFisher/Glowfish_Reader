@@ -316,18 +316,6 @@ function nbDocIds() {
   const nb = (typeof nbCur === "function") ? nbCur() : null;
   return nb ? nb.documentIds.slice() : [];
 }
-function pageNext() {
-  if (!proof) return;
-  if (pageIdx < proof.pages.length - 1) { pageIdx++; render(); return; }
-  const ids = nbDocIds(), i = ids.indexOf(proof.batch);
-  if (i >= 0 && i < ids.length - 1 && typeof nbOpenDoc === "function") nbOpenDoc(ids[i + 1]);
-}
-function pagePrev() {
-  if (!proof) return;
-  if (pageIdx > 0) { pageIdx--; render(); return; }
-  const ids = nbDocIds(), i = ids.indexOf(proof.batch);
-  if (i > 0 && typeof nbOpenDoc === "function") nbOpenDoc(ids[i - 1], true);   // 跳上一条史料末页
-}
 
 // 从底图识别框点选 → 高亮并定位右栏对应条目
 function activateRow(id) {
@@ -345,18 +333,6 @@ function updateScriptBtn() {
   const b = $("#scriptBtn");
   if (b && proof) b.textContent = proof.script === "t" ? "繁體" : "简体";
 }
-async function toggleScript() {
-  if (!proof || !gfPageSession) return;
-  const target = proof.script === "s" ? "t" : "s";
-  toast(target === "t" ? "Converting to traditional..." : "Converting to simplified...");
-  try {
-    await gfPageSession.flushAll();
-    await api("/api/convert", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ batch: gfPageSession.activeBatch, to: target }) });
-    await gfOpenPagedDocument(gfPageSession.activeBatch, pageIdx);
-  } catch (error) { toast("Conversion failed: " + error.message); }
-}
-
 async function save() {
   try {
     await gfAwaitSave();
@@ -602,12 +578,12 @@ function bindClick(id, fn, required = true) {
 }
 
 bindClick("importBtn", startImport);           // 唯一导入入口：直接打开文件/文件夹选择
-bindClick("prevPage", pagePrev);
-bindClick("nextPage", pageNext);
+
+
 bindClick("pdConfirm", doDelPage);             // 删页确认弹窗保留（按钮已移除，仅留兜底接线）
 bindClick("pdCancel", () => $("#pageDelModal").classList.add("hidden"));
 bindClick("saveBtn", () => (typeof gfSnapshotSave === "function" ? gfSnapshotSave() : save()));
-bindClick("scriptBtn", toggleScript);
+
 bindClick("exportBtn", openExportMenu);        // 导出下拉菜单（选择页面 / 整个笔记本 + 是否带批注）
 bindClick("expSelect", () => {
   closeBarMenus();

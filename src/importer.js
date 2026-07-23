@@ -356,27 +356,43 @@ async function confirmImportOnce() {
   }
   closeImporter();
   startImportProgress();
+  if (typeof gfSetDocumentBusy === "function") gfSetDocumentBusy("import", true);
   let fail = 0;
+  let openFail = 0;
   const keepCurrentOpen = (typeof proof !== "undefined" && !!proof);
   try {
     for (let gi = 0; gi < groups.length; gi++) {
       const g = groups[gi];
       if (typeof gfSetBatchImportProgress === "function") gfSetBatchImportProgress(gi, groups.length, g.name);
+      let data;
       try {
-        const data = await api("/api/open", { method: "POST",
+        data = await api("/api/open", { method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ token: impToken, items: g.items, name: g.name,
             request_id: `${confirmImport._requestId}-${gi}`,
             punct_backend: (settings && settings.punct_backend) || "local" }) });
-        const metaProof = { batch: data.batch, source: data.source, pages: (data.document_meta || {}).pages || [] };
-        if (keepCurrentOpen && typeof nbRegisterProofDoc === "function") nbRegisterProofDoc(metaProof, false, targetNotebookId);
-        else {
-          applyLoaded(data);
-          if (typeof nbRegisterProofDoc === "function") nbRegisterProofDoc(metaProof, true, targetNotebookId);
+      } catch (e) {
+        fail++;
+        toast("\u5bfc\u5165\u5931\u8d25\uff1a" + g.name + "\uff1a" + e.message);
+      }
+      if (!data) continue;
+      const metaProof = { batch: data.batch, source: data.source, pages: (data.document_meta || {}).pages || [] };
+      if (typeof nbRegisterProofDoc === "function") nbRegisterProofDoc(metaProof, !keepCurrentOpen, targetNotebookId);
+      if (!keepCurrentOpen) {
+        try {
+          await applyLoaded(data);
+        } catch (e) {
+          openFail++;
+          toast("\u5bfc\u5165\u5df2\u5b8c\u6210\uff0c\u4f46\u6253\u5f00\u5931\u8d25\uff1a" +
+            e.message + "\u3002\u53ef\u4ece\u5de6\u4fa7\u91cd\u65b0\u6253\u5f00\u3002", { ms: 6000 });
         }
-      } catch (e) { fail++; toast("导入失败：" + g.name + "：" + e.message); }
+      }
     }
-  } finally { if (typeof gfClearBatchImportProgress === "function") gfClearBatchImportProgress(); stopImportProgress(); }
-  if (groups.length > 1 && !fail) toast(`已导入 ${groups.length} 条史料`);
+  } finally {
+    if (typeof gfSetDocumentBusy === "function") gfSetDocumentBusy("import", false);
+    if (typeof gfClearBatchImportProgress === "function") gfClearBatchImportProgress();
+    stopImportProgress();
+  }
+  if (groups.length > 1 && !fail && !openFail) toast(`\u5df2\u5bfc\u5165 ${groups.length} \u6761\u53f2\u6599`);
 }
 
