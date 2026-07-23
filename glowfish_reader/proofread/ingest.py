@@ -2,10 +2,9 @@
 """导入摊平器（codex env）：把用户选的文件夹/文件(jpg/png/pdf)摊成一个有序图片目录。
 
 - 图片：直接拷成 PNG（朝向归一交给 recognize.py）。
-- PDF：逐页处理——优先取整页最大内嵌图(原生分辨率)，否则按 dpi 渲染整页。
+- PDF: render each complete page at the requested DPI.
 产出 out_dir/NNNN_<stem>.png（零填充前缀保序，recognize 按文件名排序即得阅读顺序）。
 """
-import io
 import re
 import sys
 import shutil
@@ -46,13 +45,6 @@ def _collect(paths):
     return items
 
 
-def _largest_image_xref(page):
-    imgs = page.get_images(full=True)
-    if not imgs:
-        return None
-    return max(imgs, key=lambda im: im[2] * im[3])[0]
-
-
 # ---- explode / explode_ordered 共用的单图/单页写盘 ----
 def _save_image_file(src, dst):
     """图片：旋正 EXIF → RGB → 存为 PNG。"""
@@ -60,16 +52,20 @@ def _save_image_file(src, dst):
     ImageOps.exif_transpose(Image.open(src)).convert("RGB").save(dst)
 
 
-def _save_pdf_page(doc, pno, dst, dpi):
-    """PDF 单页：优先取整页最大内嵌图(原生分辨率)，否则按 dpi 渲染整页。"""
-    from PIL import Image
-    xref = _largest_image_xref(doc[pno])
-    if xref is not None:
-        raw = doc.extract_image(xref)
-        Image.open(io.BytesIO(raw["image"])).convert("RGB").save(dst)
-    else:
-        doc[pno].get_pixmap(dpi=dpi).save(str(dst))
+def _save_pdf_page(doc, pno, dst, dpi, source=None):
+    """Render one complete PDF page as an opaque RGB PNG."""
+    import fitz
 
+    label = Path(source or getattr(doc, "name", "") or "PDF").name
+    try:
+        pixmap = doc[pno].get_pixmap(
+            dpi=dpi,
+            colorspace=fitz.csRGB,
+            alpha=False,
+        )
+        pixmap.save(str(dst))
+    except Exception as exc:
+        raise RuntimeError(f"{label} page {pno + 1}: {exc}") from exc
 
 def explode(paths, out_dir, dpi=220):
     """把 paths 摊成 out_dir 下的有序 PNG，返回产出文件列表。"""
@@ -89,13 +85,12 @@ def explode(paths, out_dir, dpi=220):
             _save_image_file(p, dst)
             produced.append(dst)
         else:  # pdf
-            doc = fitz.open(p)
-            for pno in range(len(doc)):
-                idx += 1
-                dst = out / f"{idx:04d}_{p.stem}_p{pno + 1}.png"
-                _save_pdf_page(doc, pno, dst, dpi)
-                produced.append(dst)
-            doc.close()
+            with fitz.open(p) as doc:
+                for pno in range(len(doc)):
+                    idx += 1
+                    dst = out / f"{idx:04d}_{p.stem}_p{pno + 1}.png"
+                    _save_pdf_page(doc, pno, dst, dpi, p)
+                    produced.append(dst)
     return produced
 
 
@@ -128,7 +123,7 @@ def explode_ordered(items, out_dir, dpi=220, progress=None):
         nonlocal idx
         idx += 1
         dst = out / f"{idx:04d}_{stem}_p{pno + 1}.png"
-        _save_pdf_page(doc_of(p), pno, dst, dpi)
+        _save_pdf_page(doc_of(p), pno, dst, dpi, p)
         produced.append(dst)
         emit(p, pno + 1, len(doc_of(p)))
 
