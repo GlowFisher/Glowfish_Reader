@@ -25,7 +25,11 @@ import subprocess
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-APP_NAME = "Glowfish Reader 史料阅读器"
+APP_NAME = "Glowfish Reader"
+LEGACY_APP_NAMES = (
+    "Glowfish Reader 史料阅读器",
+    "GlowFish史料阅读器",
+)
 
 _BOOL_TRUE = {"1", "true", "yes", "on", "y"}
 
@@ -46,19 +50,26 @@ def _read_bundle_sku():
         return ""
 
 
+def known_data_roots(environ=None):
+    """Return frozen data-root candidates in stable upgrade precedence."""
+    environ = os.environ if environ is None else environ
+    base = Path(environ.get("APPDATA") or str(Path.home()))
+    return tuple(base / name for name in (APP_NAME, *LEGACY_APP_NAMES))
+
+
 def _resolve_data_root():
-    """解析数据根：SHUPAI_DATA_DIR > (打包态 %APPDATA%/应用名) > 源码 _work/。"""
+    """Resolve data root without moving existing user data."""
     ev = os.environ.get("SHUPAI_DATA_DIR")
     if ev:
-        return Path(ev)
+        override = Path(ev)
+        if not override.exists() or override.is_dir():
+            return override
     if is_frozen():
-        base = os.environ.get("APPDATA") or str(Path.home())
-        new_path = Path(base) / APP_NAME
-        # 迁移旧路径：v1 的数据落在「GlowFish史料阅读器」
-        old_path = Path(base) / "GlowFish史料阅读器"
-        if old_path.exists() and not new_path.exists():
-            return old_path
-        return new_path
+        candidates = known_data_roots()
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate
+        return candidates[0]
     return HERE / "_work"
 
 
