@@ -1,85 +1,97 @@
-import subprocess
+import os
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+
+import pytest
 
 
 PROOFREAD = Path(__file__).resolve().parents[1] / "glowfish_reader" / "proofread"
 sys.path.insert(0, str(PROOFREAD))
 
-from paddlex_cache import configure_paddlex_cache
+from paddlex_cache import cleanup_legacy_drive_aliases, configure_paddlex_cache
 
 
-def test_failed_subst_is_not_selected_for_non_ascii_data_root(tmp_path):
-    env = {}
-    commands = []
-    directories = []
-
-    def runner(command, **_kwargs):
-        commands.append(command)
-        return subprocess.CompletedProcess(command, 1 if command[1] == "Z:" else 0)
-
-    result = configure_paddlex_cache(
-        tmp_path / "用户",
-        environ=env,
-        platform_name="nt",
-        runner=runner,
-        register_cleanup=lambda _callback: None,
-        ensure_directory=lambda path: directories.append(Path(path)),
-    )
-
-    assert commands[:2] == [
-        ["subst", "Z:", str(tmp_path / "用户")],
-        ["subst", "Y:", str(tmp_path / "用户")],
-    ]
-    assert result == Path("Y:/paddlex_cache")
-    assert env["PADDLE_PDX_CACHE_HOME"] == str(result)
-    assert Path("Z:/paddlex_cache") not in directories
-    assert Path("Y:/paddlex_cache") in directories
+SID = "S-1-5-21-1000"
 
 
-def test_alias_is_cleaned_up_when_its_cache_directory_is_unusable(tmp_path):
-    env = {}
-    commands = []
+def _reject_subprocess(*_args, **_kwargs):
+    raise AssertionError("cache selection must not invoke a subprocess")
 
-    def runner(command, **_kwargs):
-        commands.append(command)
-        return subprocess.CompletedProcess(command, 0)
 
-    def ensure_directory(path):
-        if Path(path) == Path("Z:/paddlex_cache"):
-            raise OSError(21, "device is not ready")
+def test_windows_uses_private_programdata_cache_without_drive_alias(tmp_path):
+    env = {"PROGRAMDATA": str(tmp_path / "ProgramData"), "SystemRoot": "C:/Windows"}
+    secured = []
 
     result = configure_paddlex_cache(
-        tmp_path / "用户",
+        tmp_path / "用户数据",
         environ=env,
         platform_name="nt",
-        runner=runner,
-        register_cleanup=lambda _callback: None,
-        ensure_directory=ensure_directory,
+        runner=_reject_subprocess,
+        program_data=env["PROGRAMDATA"],
+        user_sid=SID,
+        secure_directory=lambda path, sid: secured.append((Path(path), sid)),
     )
 
-    assert ["subst", "Z:", "/D"] in commands
-    assert result == Path("Y:/paddlex_cache")
-    assert env["PADDLE_PDX_CACHE_HOME"] == str(result)
-
-
-def test_unusable_explicit_cache_falls_back_to_data_root(tmp_path):
-    env = {"PADDLE_PDX_CACHE_HOME": "Z:/paddlex_cache"}
-
-    def ensure_directory(path):
-        if Path(path) == Path("Z:/paddlex_cache"):
-            raise OSError(21, "device is not ready")
-        Path(path).mkdir(parents=True, exist_ok=True)
-
-    result = configure_paddlex_cache(
-        tmp_path,
-        environ=env,
-        platform_name="nt",
-        ensure_directory=ensure_directory,
-    )
-
-    assert result == tmp_path / "paddlex_cache"
+    expected = Path(env["PROGRAMDATA"]) / "GlowfishReader" / "Cache" / SID
+    assert result == expected
     assert result.is_dir()
+    assert env["PADDLE_PDX_CACHE_HOME"] == str(expected)
+    assert secured == [(expected, SID)]
+
+
+def test_programdata_failure_falls_back_to_system_temp(tmp_path):
+    env = {}
+    program_data = tmp_path / "ProgramData"
+    system_root = tmp_path / "Windows"
+
+    def ensure(path):
+        path = Path(path)
+        if program_data in path.parents:
+            raise PermissionError(13, "programdata denied", str(path))
+        path.mkdir(parents=True, exist_ok=True)
+
+    result = configure_paddlex_cache(
+        tmp_path / "用户数据",
+        environ=env,
+        platform_name="nt",
+        runner=_reject_subprocess,
+        ensure_directory=ensure,
+        program_data=program_data,
+        system_root=system_root,
+        user_sid=SID,
+        secure_directory=lambda _path, _sid: None,
+    )
+
+    assert result == system_root / "Temp" / "GlowfishReader" / SID
+    assert env["PADDLE_PDX_CACHE_HOME"] == str(result)
+
+
+def test_system_cache_failures_fall_back_to_data_root(tmp_path):
+    env = {}
+    program_data = tmp_path / "ProgramData"
+    system_root = tmp_path / "Windows"
+    data_root = tmp_path / "用户数据"
+
+    def ensure(path):
+        path = Path(path)
+        if program_data in path.parents or system_root in path.parents:
+            raise PermissionError(13, "system cache denied", str(path))
+        path.mkdir(parents=True, exist_ok=True)
+
+    result = configure_paddlex_cache(
+        data_root,
+        environ=env,
+        platform_name="nt",
+        runner=_reject_subprocess,
+        ensure_directory=ensure,
+        program_data=program_data,
+        system_root=system_root,
+        user_sid=SID,
+        secure_directory=lambda _path, _sid: None,
+    )
+
+    assert result == data_root / "paddlex_cache"
     assert env["PADDLE_PDX_CACHE_HOME"] == str(result)
 
 
@@ -87,47 +99,112 @@ def test_valid_explicit_cache_is_preserved(tmp_path):
     explicit = tmp_path / "configured-cache"
     env = {"PADDLE_PDX_CACHE_HOME": str(explicit)}
 
-    result = configure_paddlex_cache(tmp_path / "ignored", environ=env)
+    result = configure_paddlex_cache(
+        tmp_path / "ignored", environ=env, runner=_reject_subprocess
+    )
 
     assert result == explicit
     assert explicit.is_dir()
-    assert env["PADDLE_PDX_CACHE_HOME"] == str(explicit)
 
 
-def test_existing_but_unwritable_explicit_cache_falls_back(tmp_path, monkeypatch):
-    explicit = tmp_path / "configured-cache"
-    explicit.mkdir()
+def test_unusable_explicit_cache_uses_programdata(tmp_path):
+    explicit = tmp_path / "unusable"
+    program_data = tmp_path / "ProgramData"
     env = {"PADDLE_PDX_CACHE_HOME": str(explicit)}
-    original_open = Path.open
 
-    def reject_explicit_probe(path, *args, **kwargs):
-        if path.parent == explicit and path.name.startswith(".glowfish-write-probe-"):
-            raise PermissionError(13, "permission denied", str(path))
-        return original_open(path, *args, **kwargs)
+    def ensure(path):
+        path = Path(path)
+        if path == explicit:
+            raise PermissionError(13, "denied", str(path))
+        path.mkdir(parents=True, exist_ok=True)
 
-    monkeypatch.setattr(Path, "open", reject_explicit_probe)
-    result = configure_paddlex_cache(tmp_path / "fallback", environ=env)
-
-    assert result == tmp_path / "fallback" / "paddlex_cache"
-    assert result.is_dir()
-    assert env["PADDLE_PDX_CACHE_HOME"] == str(result)
-    assert not list(result.glob(".glowfish-write-probe-*"))
-
-
-def test_all_failed_aliases_fall_back_to_unicode_data_root(tmp_path):
-    env = {}
-
-    def runner(command, **_kwargs):
-        return subprocess.CompletedProcess(command, 1)
-
-    data_root = tmp_path / "用户"
     result = configure_paddlex_cache(
-        data_root,
+        tmp_path / "data",
         environ=env,
         platform_name="nt",
-        runner=runner,
+        runner=_reject_subprocess,
+        ensure_directory=ensure,
+        program_data=program_data,
+        user_sid=SID,
+        secure_directory=lambda _path, _sid: None,
     )
 
-    assert result == data_root / "paddlex_cache"
-    assert result.is_dir()
-    assert env["PADDLE_PDX_CACHE_HOME"] == str(result)
+    assert result == program_data / "GlowfishReader" / "Cache" / SID
+
+
+def test_all_candidates_fail_with_diagnostic_error(tmp_path):
+    env = {}
+
+    def reject(path):
+        raise PermissionError(13, "denied", str(path))
+
+    with pytest.raises(OSError, match="No writable PaddleX cache without drive mapping"):
+        configure_paddlex_cache(
+            tmp_path / "data",
+            environ=env,
+            platform_name="nt",
+            runner=_reject_subprocess,
+            ensure_directory=reject,
+            program_data=tmp_path / "ProgramData",
+            system_root=tmp_path / "Windows",
+            user_sid=SID,
+            secure_directory=lambda _path, _sid: None,
+        )
+    assert "PADDLE_PDX_CACHE_HOME" not in env
+
+
+def test_concurrent_callers_share_one_cache_path(tmp_path):
+    env = {}
+    program_data = tmp_path / "ProgramData"
+
+    def configure():
+        return configure_paddlex_cache(
+            tmp_path / "用户数据",
+            environ=env,
+            platform_name="nt",
+            runner=_reject_subprocess,
+            program_data=program_data,
+            user_sid=SID,
+            secure_directory=lambda _path, _sid: None,
+        )
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        results = list(pool.map(lambda _index: configure(), range(24)))
+
+    assert set(results) == {program_data / "GlowfishReader" / "Cache" / SID}
+
+
+def test_cleanup_removes_only_exact_legacy_target(tmp_path):
+    legacy = tmp_path / "GlowFish史料阅读器"
+    unrelated = tmp_path / "unrelated"
+    mappings = {
+        "Z:": "\\??\\" + str(legacy),
+        "Y:": "\\??\\" + str(unrelated),
+    }
+    removed = []
+
+    result = cleanup_legacy_drive_aliases(
+        [legacy],
+        platform_name="nt",
+        query_device=lambda drive: mappings.get(drive, ""),
+        remove_device=lambda drive, target: removed.append((drive, target)),
+        other_instance_running=lambda: False,
+    )
+
+    assert result == ["Z:"]
+    assert removed == [("Z:", mappings["Z:"])]
+
+
+def test_cleanup_skips_everything_while_another_instance_runs(tmp_path):
+    queried = []
+
+    result = cleanup_legacy_drive_aliases(
+        [tmp_path / "GlowFish史料阅读器"],
+        platform_name="nt",
+        query_device=lambda drive: queried.append(drive),
+        remove_device=lambda _drive, _target: None,
+        other_instance_running=lambda: True,
+    )
+
+    assert result == []
+    assert queried == []

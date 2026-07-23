@@ -76,7 +76,21 @@ if ($LASTEXITCODE -ne 0) { throw "component asset verification FAILED ($LASTEXIT
 Write-Host "[release] running packaging preflight ..."
 & $py (Join-Path $here "packaging_preflight.py")
 if ($LASTEXITCODE -ne 0) { throw "packaging preflight FAILED ($LASTEXITCODE)" }
-
+Write-Host "[release] enforcing drive-free OCR runtime ..."
+$driveAliasRuntimeFiles = @(
+  (Join-Path $here "paddlex_cache.py"),
+  (Join-Path $here "recognize_ppocrv6.py"),
+  (Join-Path $here "recognize_ppocrv6_onnx.py"),
+  (Join-Path $workspaceRoot "ocr\src\glowfish_ocr\legacy\paddlex_cache.py"),
+  (Join-Path $workspaceRoot "ocr\src\glowfish_ocr\legacy\recognize_ppocrv6.py"),
+  (Join-Path $workspaceRoot "ocr\src\glowfish_ocr\legacy\recognize_ppocrv6_onnx.py")
+)
+foreach ($runtimeFile in $driveAliasRuntimeFiles) {
+  if (-not (Test-Path $runtimeFile)) { throw "drive-free gate input missing: $runtimeFile" }
+  $forbidden = Select-String -LiteralPath $runtimeFile -SimpleMatch -Pattern '["subst"', "['subst'"
+  if ($forbidden) { throw "forbidden subst invocation in runtime: $runtimeFile" }
+}
+Write-Host "[release]   drive-free OCR runtime OK"
 # --- 3. optional build (PyInstaller onedir) ---
 if ($Build) {
   Write-Host "[release] building onedir via PyInstaller ..."
@@ -96,8 +110,11 @@ $distDir = Join-Path $distPath "glowfish_reader"
 $frozenExe = Join-Path $distDir $appExeName
 if (Test-Path $frozenExe) {
   # Windowed executables require Start-Process -Wait -PassThru to expose the exit code.
-  $gateDataRoot = Join-Path $here (".release-gates-" + [guid]::NewGuid().ToString("N"))
+  $gateSandboxRoot = Join-Path $here (".release-gates-" + [guid]::NewGuid().ToString("N"))
+  $unicodeGateLeaf = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String("5Lit5paHIOeUqOaIt+aVsOaNriDplb/ot6/lvoTpqozmlLY="))
+  $gateDataRoot = Join-Path $gateSandboxRoot $unicodeGateLeaf
   New-Item -ItemType Directory -Path $gateDataRoot | Out-Null
+  $driveAliasesBefore = @(& subst 2>$null | Sort-Object)
   function Invoke-FrozenGate([string]$Name, [string]$Argument) {
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = $frozenExe
@@ -126,7 +143,16 @@ if (Test-Path $frozenExe) {
     } else {
       $env:SHUPAI_DATA_DIR = $previousGateDataRoot
     }
-    Remove-Item -LiteralPath $gateDataRoot -Recurse -Force -ErrorAction SilentlyContinue
+    $driveAliasesAfter = @(& subst 2>$null | Sort-Object)
+    $newDriveAliases = @($driveAliasesAfter | Where-Object { $_ -notin $driveAliasesBefore })
+    foreach ($aliasLine in $newDriveAliases) {
+      $driveMatch = [regex]::Match($aliasLine, '^([A-Z]:)')
+      if ($driveMatch.Success) { & subst $driveMatch.Groups[1].Value /D 2>$null }
+    }
+    Remove-Item -LiteralPath $gateSandboxRoot -Recurse -Force -ErrorAction SilentlyContinue
+    if ($newDriveAliases.Count -gt 0) {
+      throw ("frozen runtime created a temporary drive alias: " + ($newDriveAliases -join '; '))
+    }
   }
 } else {
   throw "frozen exe not found: $frozenExe (run PyInstaller first, or pass -Build)"

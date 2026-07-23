@@ -21,9 +21,11 @@ import update_api
 import notice_api
 import capabilities_api
 import ui_assets
+import subprocess_env
 
 # 数据根目录由 appconfig 决定（开发态 _work/，打包态 %APPDATA%）；单机用户落 users/local/。
 (appconfig.data_root() / "users").mkdir(parents=True, exist_ok=True)
+OCR_CACHE = subprocess_env.prepare_ocr_environment(cleanup_legacy=True)
 
 app = FastAPI(title="Glowfish Reader 史料阅读器")
 

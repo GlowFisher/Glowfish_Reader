@@ -18,12 +18,14 @@ import library_api
 import notice_api
 import ocr_component_runtime
 import runtime_status_api
+import subprocess_env
 import ui_assets
 import update_api
 
 
 (appconfig.data_root() / "users").mkdir(parents=True, exist_ok=True)
 _LOG = logging.getLogger("glowfish.ocr.runtime")
+OCR_CACHE = subprocess_env.prepare_ocr_environment(cleanup_legacy=True)
 
 
 def _configure_ocr_runtime():

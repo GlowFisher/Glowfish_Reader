@@ -3,10 +3,10 @@
 ; 前置： 先 pyinstaller 出 dist\glowfish_reader\（onedir）。产物 Output\glowfish_reader_setup.exe
 ; 说明：
 ;   · 按用户安装到 %LOCALAPPDATA%\Programs（PrivilegesRequired=lowest，免 UAC，对非技术用户友好）。
-;   · 用户史料数据落 %APPDATA%\Glowfish Reader 史料阅读器\，安装/卸载都不碰，卸载只删程序本体。
+;   · 新用户数据落 %APPDATA%\Glowfish Reader\；旧用户继续使用历史目录。安装/卸载都不碰用户数据。
 ;   · 首装检查 WebView2 运行时（Win11 一般自带；缺失则跑随包 bootstrapper 静默装）。
 ; 命名：产物/可执行名用 ASCII 代号 glowfish_reader（便于 glowfish 生态产品管理）；
-;       用户可见显示名/快捷方式统一为「Glowfish Reader」；安装目录/数据目录仍用中文「Glowfish Reader 史料阅读器」，不影响已装用户数据。
+;       用户可见显示名/快捷方式统一为「Glowfish Reader」；数据目录解析兼容全部历史名称，不迁移已装用户数据。
 
 #define AppBaseName "Glowfish Reader"
 ; AppVersion 单一真源 = proofread/_version.py；release.ps1 用 ISCC 命令行 /DAppVersion=<ver> 覆盖。
