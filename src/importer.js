@@ -355,7 +355,7 @@ async function confirmImportOnce() {
     }
   }
   closeImporter();
-  startImportProgress();
+  startImportProgress({ targetNotebookId });
   if (typeof gfSetDocumentBusy === "function") gfSetDocumentBusy("import", true);
   let fail = 0;
   let openFail = 0;

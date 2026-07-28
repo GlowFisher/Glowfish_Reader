@@ -24,3 +24,22 @@ def test_recovery_progress_accepts_page_ids_and_engine_breakdown():
     assert "ppocrv6_onnx_high" in app
     assert "startImportProgress();" in app
     assert "gfWatchDocumentTask(started.task_id)" in app
+
+
+def test_import_progress_registers_partial_document_meta():
+    app = (ROOT / "app.js").read_text(encoding="utf-8")
+    importer = (ROOT / "importer.js").read_text(encoding="utf-8")
+
+    assert "function gfRegisterImportProgressDocument" in app
+    assert "p.document_meta" in app
+    assert "nbRegisterProofDoc(metaProof, false, targetNotebookId)" in app
+    assert "startImportProgress({ targetNotebookId })" in importer
+
+
+def test_recovery_prompt_registers_partial_document_meta_before_choice():
+    app = (ROOT / "app.js").read_text(encoding="utf-8")
+
+    recovery_block = app.split("async function gfCheckRecoverableImports()", 1)[1]
+    assert "gfRegisterImportProgressDocument(job" in recovery_block
+    assert "kept_document" in recovery_block
+    assert "已保留已识别页" in recovery_block

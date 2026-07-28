@@ -141,7 +141,16 @@ async function gfCheckCapabilitiesOnce() {
   } catch (e) {}
 }
 
-function startImportProgress() {
+function gfRegisterImportProgressDocument(payload, options = {}) {
+  if (!payload || !payload.document_meta || !payload.batch) return;
+  if (typeof nbRegisterProofDoc !== "function") return;
+  const meta = payload.document_meta || {};
+  const metaProof = { batch: payload.batch || meta.batch, source: payload.source || meta.source || payload.batch,
+    pages: meta.pages || [] };
+  const targetNotebookId = options.targetNotebookId || payload.targetNotebookId || null;
+  nbRegisterProofDoc(metaProof, false, targetNotebookId);
+}
+function startImportProgress(options = {}) {
   const box = $("#importProgress"), fail = $("#importFail");
   box.textContent = "正在导入素材：准备中…"; box.classList.remove("hidden");
   fail.classList.add("hidden"); fail.textContent = "";
@@ -151,6 +160,7 @@ function startImportProgress() {
   importTimer = setInterval(async () => {
     try {
       const p = await api("/api/import_progress");
+      if (p.document_meta) gfRegisterImportProgressDocument(p, options);
       const engTag = p.engine && ENGINE_LABEL[p.engine] ? `（${ENGINE_LABEL[p.engine]}引擎）` : "";
       if (p.phase === "ocr" && p.total) {
         importSawOcr = true;
@@ -203,6 +213,7 @@ async function gfCheckRecoverableImports() {
   }
   if (!jobs.length) return;
   const job = jobs[0];
+  gfRegisterImportProgressDocument(job);
   const overlay = document.createElement("div");
   overlay.id = "ocrRecoveryModal";
   overlay.style.cssText = "position:fixed;inset:0;z-index:9300;display:flex;align-items:center;" +
@@ -237,9 +248,14 @@ async function gfCheckRecoverableImports() {
     if (!confirm("\u653e\u5f03\u540e\u5c06\u5220\u9664\u8be5\u672a\u5b8c\u6210\u5bfc\u5165\u53ca\u5df2\u4fdd\u5b58\u7684\u65ad\u70b9\uff0c\u662f\u5426\u7ee7\u7eed\uff1f")) return;
     later.disabled = discard.disabled = resume.disabled = true;
     try {
-      await GlowfishApi.ocr.discard(job.job_id);
+      const discarded = await GlowfishApi.ocr.discard(job.job_id);
       overlay.remove();
-      toast("\u5df2\u653e\u5f03\u672a\u5b8c\u6210\u7684\u8bc6\u522b\u4efb\u52a1");
+      if (discarded.kept_document) {
+        gfRegisterImportProgressDocument(discarded);
+        toast("已保留已识别页，已停止继续识别");
+      } else {
+        toast("\u5df2\u653e\u5f03\u672a\u5b8c\u6210\u7684\u8bc6\u522b\u4efb\u52a1");
+      }
     } catch (error) {
       later.disabled = discard.disabled = resume.disabled = false;
       toast("\u65e0\u6cd5\u653e\u5f03\u8be5\u4efb\u52a1\uff1a" + error.message);
