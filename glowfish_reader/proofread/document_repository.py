@@ -269,6 +269,74 @@ class DocumentRepository:
                         pass
                 raise
 
+    def append_ocr_pages(self, document_meta: Mapping, pages, *, page_order=None) -> dict:
+        """Append OCR-published pages without replacing existing page bodies."""
+        forbidden = {"pages", "schema_version", "revision"}
+        page_order = [str(page_id) for page_id in (page_order or [])]
+        order_index = {page_id: index for index, page_id in enumerate(page_order)}
+        created = []
+        with self._lock:
+            if self.meta_path.exists():
+                meta = copy.deepcopy(self._read_json(self.meta_path))
+            elif self.proof_path.exists():
+                meta = copy.deepcopy(self.ensure_migrated())
+            else:
+                meta = {
+                    key: copy.deepcopy(value)
+                    for key, value in dict(document_meta or {}).items()
+                    if key not in forbidden
+                }
+                meta.update({"schema_version": SCHEMA_VERSION, "revision": 0, "pages": []})
+            descriptors = list(meta.get("pages") or [])
+            by_id = {str(item.get("page_id")): item for item in descriptors}
+            changed = False
+            generation = "ocr" + uuid.uuid4().hex[:8]
+            try:
+                for raw_page in pages:
+                    page = copy.deepcopy(dict(raw_page))
+                    page_id = str(page.get("page_id") or "")
+                    if not page_id or page_id in by_id:
+                        continue
+                    page["page_id"] = page_id
+                    page["revision"] = int(page.get("revision", 0))
+                    relative = f"pages/{generation}/{_page_key(page_id)}.json"
+                    target = self.batch_dir / relative
+                    _atomic_json(target, page)
+                    created.append(target)
+                    descriptor = _page_summary(page)
+                    descriptor.update({"revision": page["revision"], "file": relative})
+                    descriptors.append(descriptor)
+                    by_id[page_id] = descriptor
+                    changed = True
+                for key, value in dict(document_meta or {}).items():
+                    if key in forbidden:
+                        continue
+                    value = copy.deepcopy(value)
+                    if meta.get(key) != value:
+                        meta[key] = value
+                        changed = True
+                descriptors.sort(
+                    key=lambda item: (
+                        order_index.get(str(item.get("page_id")), len(order_index)),
+                        str(item.get("page_id") or ""),
+                    )
+                )
+                if meta.get("pages") != descriptors:
+                    meta["pages"] = descriptors
+                    changed = True
+                if changed:
+                    meta["revision"] = int(meta.get("revision", 0)) + 1
+                    _atomic_json(self.meta_path, meta)
+                return self.load_meta()
+            except Exception:
+                for target in created:
+                    try:
+                        target.unlink(missing_ok=True)
+                        target.parent.rmdir()
+                    except OSError:
+                        pass
+                raise
+
     def replace_full(self, proof: Mapping, checkpoint: bool = False) -> dict:
         """Compatibility/import path. New UI code must use save_page/save_meta."""
         with self._lock:

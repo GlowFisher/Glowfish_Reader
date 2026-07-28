@@ -56,15 +56,16 @@ async def proof_search(req: Request, ctx: Ctx = Depends(ctx_dep)):
 
 # ---- 顶层笔记本注册表（磁盘持久备份；IndexedDB 清缓存后据此重建索引）----
 def _bootstrap_notebooks(ctx):
-    """notebooks.json 不存在时：扫本用户各 <batch>/proof.json 自举默认笔记本。"""
+    """Build a default notebook from completed or partially published documents."""
     docs, order = {}, 0
     for d in sorted([x for x in ctx.work.iterdir() if x.is_dir()],
                     key=lambda x: x.name.lower()):
         pf = d / "proof.json"
-        if not pf.exists():
+        meta_path = d / "document.json"
+        if not pf.exists() and not meta_path.exists():
             continue
         try:
-            p = json.loads(pf.read_text(encoding="utf-8"))
+            p = repository_for_proof(pf).load_meta()
         except Exception:
             continue
         batch = p.get("batch", d.name)
@@ -75,7 +76,7 @@ def _bootstrap_notebooks(ctx):
             "order": order,
             "pageCount": len(pages),
             "firstPage": pages[0].get("page_id") if pages else None,
-            "createdAt": int(pf.stat().st_mtime * 1000),
+            "createdAt": int((meta_path if meta_path.exists() else pf).stat().st_mtime * 1000),
         }
         order += 1
     nb = {"id": "nb_default", "name": "我的史料", "tags": [], "archived": False,

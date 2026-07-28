@@ -68,17 +68,18 @@ class Ctx:
             return None
         bdir = self.work / batch
         proof_path = bdir / "proof.json"
-        if not proof_path.exists():
+        meta_path = bdir / "document.json"
+        if not proof_path.exists() and not meta_path.exists():
             return None
         try:
-            proof = json.loads(proof_path.read_text(encoding="utf-8"))
+            source_path = proof_path if proof_path.exists() else meta_path
+            proof = json.loads(source_path.read_text(encoding="utf-8"))
         except Exception:
             proof = {}
         image_dir = proof.get("image_dir") or str(bdir / "_src")
         return {"image_dir": image_dir, "proof_path": str(proof_path),
                 "recog_path": str(bdir / "_recog.json"),
                 "engine": proof.get("engine", "paddle")}
-
 
 def _single_mode_authorized(sid):
     """single 模式下，是否有权访问正文/数据接口——与 /api/me 汇报给前端的口径保持一致。

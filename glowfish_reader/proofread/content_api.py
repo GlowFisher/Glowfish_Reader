@@ -324,6 +324,134 @@ def _load_recog_json(recog_path: Path):
         return None
 
 
+def _read_checkpoint_json(path: Path):
+    try:
+        value = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def _checkpoint_page_order(checkpoint_dir: Path) -> list[str]:
+    manifest = _read_checkpoint_json(Path(checkpoint_dir) / "manifest.json") or {}
+    order = [str(page_id) for page_id in manifest.get("page_order") or []]
+    pages_dir = Path(checkpoint_dir) / "pages"
+    if pages_dir.is_dir():
+        known = set(order)
+        for path in sorted(pages_dir.glob("*.json"), key=lambda item: item.name.lower()):
+            if path.stem not in known:
+                order.append(path.stem)
+                known.add(path.stem)
+    return order
+
+
+def _copy_checkpoint_image(batch_dir: Path, page: dict) -> dict:
+    image = page.get("image")
+    if not image:
+        return page
+    source = Path(str(image))
+    if not source.is_absolute():
+        checkpoint_dir = ocr_recovery.checkpoint_dir(batch_dir)
+        candidates = [
+            Path(batch_dir) / source,
+            checkpoint_dir / source,
+            checkpoint_dir / "images" / source.name,
+            source,
+        ]
+        source = next((candidate for candidate in candidates if candidate.is_file()), source)
+    if not source.is_file():
+        return page
+    final_dir = Path(batch_dir) / "_img"
+    final_dir.mkdir(parents=True, exist_ok=True)
+    target = final_dir / source.name
+    try:
+        if source.resolve() != target.resolve():
+            temporary = target.with_name(f".{target.name}.{uuid.uuid4().hex}.tmp")
+            shutil.copy2(source, temporary)
+            os.replace(temporary, target)
+    except OSError:
+        _LOG.warning("Could not publish checkpoint image: %s", source, exc_info=True)
+        return page
+    copied = dict(page)
+    copied["image"] = str(target)
+    return copied
+
+
+def _published_document_payload(batch_dir: Path):
+    try:
+        meta = repository_for_proof(Path(batch_dir) / "proof.json").load_meta()
+    except (DocumentError, OSError, ValueError):
+        return None
+    pages = meta.get("pages") or []
+    if not pages:
+        return None
+    return {"published": len(pages), "document_meta": meta}
+
+
+def _publish_checkpoint_pages(ctx: Ctx, batch_dir: Path, record: dict = None):
+    batch_dir = Path(batch_dir)
+    checkpoint_dir = ocr_recovery.checkpoint_dir(batch_dir)
+    pages_dir = checkpoint_dir / "pages"
+    if not pages_dir.is_dir():
+        return _published_document_payload(batch_dir)
+    record = record or ocr_recovery.load_record(batch_dir) or {}
+    batch = str(record.get("batch") or batch_dir.name)
+    engine = engines.engine_name(record.get("engine") or None)
+    default_script = str(record.get("default_script") or "s")
+    script = "t" if default_script == "t" else "s"
+    order = _checkpoint_page_order(checkpoint_dir)
+    proof_pages = []
+    for page_id in order:
+        raw_page = _read_checkpoint_json(pages_dir / f"{page_id}.json")
+        if raw_page is None or raw_page.get("failed"):
+            continue
+        checkpoint_page = _copy_checkpoint_image(batch_dir, raw_page)
+        proof = M.build_proof({page_id: checkpoint_page}, batch, engine=engine)
+        if script == "t":
+            M.convert_proof(proof, "t")
+        if proof.get("pages"):
+            proof_pages.append(proof["pages"][0])
+    if not proof_pages:
+        return _published_document_payload(batch_dir)
+    meta = repository_for_proof(batch_dir / "proof.json").append_ocr_pages(
+        {
+            "batch": batch,
+            "engine": engine,
+            "script": script,
+            "source": str(record.get("source") or batch),
+            "image_dir": str(batch_dir / "_src"),
+            "ocr_status": "partial",
+            "ocr_total": int(record.get("total") or len(order) or len(proof_pages)),
+        },
+        proof_pages,
+        page_order=order,
+    )
+    return {"published": len(meta.get("pages") or []), "document_meta": meta}
+
+
+def _enrich_progress_payload(ctx: Ctx, payload: dict):
+    payload = dict(payload or {})
+    batch = payload.get("batch")
+    if not batch:
+        return payload
+    batch_dir = ctx.work / safefs.safe_batch(batch)
+    publication = _publish_checkpoint_pages(ctx, batch_dir)
+    if publication:
+        payload.update(publication)
+    return payload
+
+
+def _enrich_recovery_summary(ctx: Ctx, summary: dict):
+    summary = dict(summary or {})
+    batch = summary.get("batch")
+    if not batch:
+        return summary
+    batch_dir = ctx.work / safefs.safe_batch(batch)
+    publication = _publish_checkpoint_pages(ctx, batch_dir, ocr_recovery.load_record(batch_dir))
+    if publication:
+        summary.update(publication)
+    return summary
+
 def _recog_quality(recog_path: Path):
     data = _load_recog_json(recog_path)
     if data is None:
@@ -632,10 +760,12 @@ def _load_proof(ctx: Ctx, batch, image_dir, source_label, engine=None, request_i
     eng = engines.engine_name(engine)
     _begin_ocr_progress(ctx, Path(image_dir), eng)
     actual_eng = _ensure_recog(ctx, Path(image_dir), recog_path, eng, request_id=request_id)
+    _publish_checkpoint_pages(ctx, bdir, ocr_recovery.load_record(bdir))
     proof = M.load_or_build(proof_path, recog_path, batch, engine=actual_eng)
     proof["image_dir"] = str(image_dir)
     proof["source"] = source_label
     proof["engine"] = actual_eng
+    proof["ocr_status"] = "complete"
     reg = {"image_dir": str(image_dir), "proof_path": str(proof_path)}
     for page in proof.get("pages", []):
         if _normalize_page_image_ref(page, reg, proof_path):
@@ -740,11 +870,11 @@ def thumb(token: str, rel: str, page: int = 0, ctx: Ctx = Depends(ctx_dep)):
 def import_progress(ctx: Ctx = Depends(ctx_dep)):
     active = ocr_job_manager.JOB_MANAGER.status(ctx.uid, active_only=True)
     if active:
-        return active
-    recoverable = ocr_recovery.discover(ctx.work)
+        return _enrich_progress_payload(ctx, active)
+    recoverable = [_enrich_recovery_summary(ctx, item) for item in ocr_recovery.discover(ctx.work)]
     if recoverable:
         latest = recoverable[0]
-        return {
+        payload = {
             "phase": "interrupted",
             "done": latest["completed"],
             "completed": latest["completed"],
@@ -757,13 +887,17 @@ def import_progress(ctx: Ctx = Depends(ctx_dep)):
             "failed": latest["failed_pages"],
             "resumed": True,
         }
+        if latest.get("document_meta"):
+            payload["document_meta"] = latest["document_meta"]
+            payload["published"] = latest.get("published", len(latest["document_meta"].get("pages") or []))
+        return payload
     p = ctx.read_progress()
     if isinstance(p, dict) and _CUR_ENGINE["name"]:
-        p.setdefault("engine", _CUR_ENGINE["name"])   # 閸撳秶顏弰鍓с仛瑜版挸澧犲鏇熸惛閿涘牓鐝划缍盠/韫囶偊鈧噦绱?
+        p.setdefault("engine", _CUR_ENGINE["name"])
     return p
 @router.get("/api/import_jobs/recoverable")
 def recoverable_import_jobs(ctx: Ctx = Depends(ctx_dep)):
-    return {"jobs": ocr_recovery.discover(ctx.work)}
+    return {"jobs": [_enrich_recovery_summary(ctx, item) for item in ocr_recovery.discover(ctx.work)]}
 
 
 @router.post("/api/import_jobs/{job_id}/resume")
@@ -831,7 +965,7 @@ def resume_import_job(job_id: str, ctx: Ctx = Depends(ctx_dep)):
         int(record.get("total") or 0),
         execute,
     )
-    summary = ocr_recovery.summarize(batch_dir, record) or {}
+    summary = _enrich_recovery_summary(ctx, ocr_recovery.summarize(batch_dir, record) or {})
     summary.update(task_id=task.task_id, status="running")
     return summary
 
@@ -852,10 +986,20 @@ def discard_import_job(job_id: str, ctx: Ctx = Depends(ctx_dep)):
         batch_dir.resolve().relative_to(ctx.work.resolve())
     except ValueError:
         raise HTTPException(400, "Invalid OCR job path")
+    publication = _publish_checkpoint_pages(ctx, batch_dir, record)
+    if publication and publication.get("published", 0) > 0:
+        repo = repository_for_proof(batch_dir / "proof.json")
+        repo.save_meta({"ocr_status": "stopped"})
+        repo.checkpoint()
+        shutil.rmtree(ocr_recovery.checkpoint_dir(batch_dir), ignore_errors=True)
+        _LOG.info("ocr_recovery_discarded_checkpoint_kept_document job_id=%s batch=%s", job_id, batch_dir.name)
+        meta = repo.load_meta()
+        return {"ok": True, "job_id": job_id, "batch": batch_dir.name,
+                "kept_document": True, "published": len(meta.get("pages") or []),
+                "document_meta": meta}
     shutil.rmtree(batch_dir)
     _LOG.info("ocr_recovery_discarded job_id=%s batch=%s", job_id, batch_dir.name)
-    return {"ok": True, "job_id": job_id, "batch": batch_dir.name}
-
+    return {"ok": True, "job_id": job_id, "batch": batch_dir.name, "kept_document": False}
 
 
 
