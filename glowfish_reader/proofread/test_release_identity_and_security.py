@@ -11,7 +11,7 @@ import packaging_payload_audit
 
 
 HERE = Path(__file__).resolve().parent
-PRODUCT = "Glowfish Reader V1.0.1"
+PRODUCT = "Glowfish Reader V1.0.3"
 
 
 def test_release_identity_is_exact_and_consistent():
@@ -20,7 +20,7 @@ def test_release_identity_is_exact_and_consistent():
     release = (HERE / "release.ps1").read_text(encoding="utf-8")
     version_info = (HERE / "version_info.txt").read_text(encoding="utf-8")
 
-    assert '__version__ = "1.0.1"' in (HERE / "_version.py").read_text(encoding="utf-8")
+    assert '__version__ = "1.0.3"' in (HERE / "_version.py").read_text(encoding="utf-8")
     assert '#define AppDisplayName AppBaseName + " V" + AppVersion' in installer
     assert 'AppName={#AppDisplayName}' in installer
     assert 'AppVerName={#AppDisplayName}' in installer
@@ -37,8 +37,8 @@ def test_release_identity_is_exact_and_consistent():
     assert f"StringStruct('ProductName', '{PRODUCT}')" in version_info
     assert f"StringStruct('OriginalFilename', '{PRODUCT}.exe')" in version_info
 
-    assert "filevers=(1, 0, 1, 0)" in version_info
-    assert "prodvers=(1, 0, 1, 0)" in version_info
+    assert "filevers=(1, 0, 3, 0)" in version_info
+    assert "prodvers=(1, 0, 3, 0)" in version_info
 
 
 def test_release_runs_latest_fix_and_payload_security_gates():

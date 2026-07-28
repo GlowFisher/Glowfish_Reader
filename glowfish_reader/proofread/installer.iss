@@ -12,7 +12,7 @@
 ; AppVersion 单一真源 = proofread/_version.py；release.ps1 用 ISCC 命令行 /DAppVersion=<ver> 覆盖。
 ; 下面的字面量仅为「手动编译不带 /D」时的兜底默认，#ifndef 保证 /D 优先、不冲突。
 #ifndef AppVersion
-  #define AppVersion "1.0.1"
+  #define AppVersion "1.0.3"
 #endif
 #define AppDisplayName AppBaseName + " V" + AppVersion
 #define AppExe AppDisplayName + ".exe"
