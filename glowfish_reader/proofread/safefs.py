@@ -29,15 +29,18 @@ def safe_batch(name):
     return name
 
 
-def coerce_batch(name):
+def coerce_batch(name, max_len=120):
     """强制规范化 batch 名：去非法字符 + Windows 禁的结尾点/空格 + 保留名规避 + 限长；
-    空 / `.` / `..` 兜底为 'import'（用于生成新批次名，目录名安全）。"""
+    空 / `.` / `..` 兜底为 'import'（用于生成新批次名，目录名安全）。
+
+    ``max_len`` 可调以便调用方在追加自增后缀前先预留空间，避免「截断后与基底相同」
+    导致的去重死循环（见 content_api.open_sources / library_api.copy_batch）。"""
     name = _BAD.sub("_", (name or "").strip()).rstrip(". ")
     if name in ("", ".", ".."):
         return "import"
     if name.upper() in _RESERVED:
         name = "_" + name
-    return name[:120]
+    return name[:max_len]
 
 
 def safe_rel(rel):

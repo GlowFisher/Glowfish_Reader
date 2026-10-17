@@ -57,6 +57,6 @@ def test_v2_entry_injects_legacy_routers_without_owning_them():
     assert "runtime_status_api.configure_runtime_status_provider" in entry
     assert "runtime_status_api.router" in entry
     assert "OCR_POLICY, OCR_RUNNER = _configure_ocr_runtime()" in entry
-    assert "ocr_component_runtime.ComponentOcrEngineRunner()" in entry
+    assert "ocr_component_runtime.ComponentOcrEngineRunner(" in entry
     assert 'OCR_RUNTIME = "component" if OCR_RUNNER is not None else "legacy"' in entry
     assert "content_api.configure_ocr_engine_runner(None)" in entry

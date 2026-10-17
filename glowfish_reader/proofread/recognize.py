@@ -8,7 +8,6 @@ box 为原图坐标系下的外接矩形。校对界面据此叠框、定位、�
 
 用法：python recognize.py --images <目录> --out _recog.json
 """
-import os
 import sys
 import json
 import argparse

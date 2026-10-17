@@ -49,7 +49,8 @@ def _collect(paths):
 def _save_image_file(src, dst):
     """图片：旋正 EXIF → RGB → 存为 PNG。"""
     from PIL import Image, ImageOps
-    ImageOps.exif_transpose(Image.open(src)).convert("RGB").save(dst)
+    with Image.open(src) as im:
+        ImageOps.exif_transpose(im).convert("RGB").save(dst)
 
 
 def _save_pdf_page(doc, pno, dst, dpi, source=None):

@@ -5,9 +5,8 @@ current_user：FastAPI 依赖，本机单用户模式恒返回本机用户（无
 Ctx：当前用户的工作目录与各路径；reg(batch) 直接从磁盘 proof.json 派生（消除全局可变态）。
 """
 import json
-from pathlib import Path
 
-from fastapi import Cookie, Depends
+from fastapi import Depends
 
 import appconfig
 
@@ -20,7 +19,7 @@ COOKIE = "sid"
 LOCAL_USER = {"id": "local", "username": "local", "display": "本机用户"}
 
 
-def current_user(sid: str = Cookie(default=None)):
+def current_user():
     """本机单用户模式直接返回本机用户（无登录）。"""
     return dict(LOCAL_USER)
 
@@ -73,6 +72,6 @@ class Ctx:
                 "recog_path": str(bdir / "_recog.json"),
                 "engine": proof.get("engine", "paddle")}
 
-def ctx_dep(user=Depends(current_user), sid: str = Cookie(default=None)):
+def ctx_dep(user=Depends(current_user)):
     """FastAPI 依赖：本机单用户模式直接构造当前用户 Ctx，无登录/授权校验。"""
     return Ctx(user)

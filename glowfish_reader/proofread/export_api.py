@@ -219,7 +219,7 @@ def _export_single(ctx, body, fmt, with_image, page_marks=False, with_annot=Fals
         target = {**proof, "pages": pages}
         name = f"{batch}_{len(pages)}\u9875_\u8f91\u5f55"
     if body.get("scope") == "page" and body.get("page_id"):
-        pid = body["page_id"]
+        pid = str(body["page_id"])
         target = {**proof, "pages": [p for p in proof["pages"] if p["page_id"] == pid]}
         name = f"{batch}_{pid}_辑录"
     data, n = M.doc_bytes(target, fmt, t2s=False, page_marks=page_marks, with_annotations=with_annot, with_images=with_image)

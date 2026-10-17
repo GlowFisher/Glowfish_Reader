@@ -22,6 +22,7 @@ import sys
 import json
 import shutil
 import subprocess
+import logging
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -40,7 +41,10 @@ def is_frozen():
 
 
 def _read_bundle_sku():
-    """打包态读 bundle 内 sku.txt 的构建期 SKU 标记（single/multi）；缺失/异常返回 ''。"""
+    """打包态读 bundle 内 sku.txt 的构建期 SKU 标记（single/multi）；缺失/异常返回 ''。
+
+    注：开源发布已移除登录/账号系统（见 archived/），multi 模式废弃，本函数与 get_mode/is_single
+    不再有消费方，仅为打包脚本 sku 标记保留兼容占位。"""
     base = getattr(sys, "_MEIPASS", None)
     if not base:
         return ""
@@ -97,8 +101,10 @@ def _load_file():
             d = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
             if isinstance(d, dict):
                 return d
-        except Exception:
-            pass
+        except Exception as exc:
+            logging.getLogger("glowfish.config").warning(
+                "配置文件损坏，已回退默认值：%s（%s）", CONFIG_PATH, exc
+            )
     return {}
 
 
@@ -106,8 +112,8 @@ def _save_file(d):
     try:
         WORK.mkdir(parents=True, exist_ok=True)
         CONFIG_PATH.write_text(json.dumps(d, ensure_ascii=False, indent=2), encoding="utf-8")
-    except Exception:
-        pass
+    except Exception as exc:
+        logging.getLogger("glowfish.config").warning("写入配置失败：%s（%s）", CONFIG_PATH, exc)
 
 
 def _env(name):
@@ -210,10 +216,7 @@ def should_open_browser():
 
 
 def get_mode():
-    """运行模式 single/multi。
-    · 打包态：锁定为 bundle 内 sku.txt（消费版 single / 机构版 multi），**忽略 SHUPAI_MODE
-      环境变量**——授权门不可经环境变量绕过；无标记默认 single。
-    · 开发态：固定 single；登录/注册仅保留给打包态 multi SKU。"""
+    """运行模式 single/multi（已废弃：开源发布移除登录后恒为 single，仅保留兼容）。"""
     if is_frozen():
         sku = _read_bundle_sku()
         return sku if sku in ("single", "multi") else "single"

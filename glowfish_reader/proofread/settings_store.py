@@ -20,7 +20,7 @@ DEFAULT_SETTINGS = {
     # 底部通用
     "export_format": "docx", "export_with_image": False, "export_page_marks": False,
     "export_last_dir": "",          # 记忆上次导出保存目录（桌面端原生保存对话框默认打开此处）
-    "autosave": 0, "auto_check_update": True,
+    "autosave": 0,
 }
 
 

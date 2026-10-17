@@ -160,11 +160,13 @@ async def copy_batch(req: Request, ctx: Ctx = Depends(ctx_dep)):
     sdir = ctx.work / src
     if not (sdir / "proof.json").exists():
         raise HTTPException(404, "Source document not found")
-    base = safefs.coerce_batch(body.get("new_batch") or (src + "_copy"))
+    base = safefs.coerce_batch(body.get("new_batch") or (src + "_copy"), max_len=114)
     dst, index = base, 2
-    while (ctx.work / dst).exists():
+    while (ctx.work / dst).exists() and index < 1000000:
         dst = safefs.coerce_batch(f"{base}{index}")
         index += 1
+    if (ctx.work / dst).exists():
+        raise HTTPException(400, "批次名冲突，无法生成唯一名称")
     ddir = ctx.work / dst
     try:
         meta = await anyio.to_thread.run_sync(_copy_page_repository, sdir, ddir, dst)

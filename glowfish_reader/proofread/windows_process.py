@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import atexit
+import logging
 import os
 import subprocess
 import threading
@@ -112,8 +113,12 @@ def _assign_job(process):
         assign.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
         assign.restype = wintypes.BOOL
         assign(handle, wintypes.HANDLE(int(process._handle)))
-    except Exception:
-        pass
+    except Exception as exc:
+        # 绑定失败意味着主进程退出后子进程不会被连带终止，记录日志便于排查残留进程
+        logging.getLogger("glowfish.process").warning(
+            "无法将子进程绑定到 Job Object（%s）；主进程退出后该子进程可能残留：%s",
+            exc, getattr(process, "pid", None),
+        )
 
 
 def spawn(argv, *, purpose="helper", job_id=None, **kwargs):

@@ -4,6 +4,7 @@ import os
 import json
 import subprocess
 import sys
+import threading
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -11,9 +12,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from glowfish_host import GpuRuntimeInstaller, GpuRuntimeManager
 from settings_store import load_settings, save_settings
 from userctx import Ctx, ctx_dep
+from _version import __version__
 
 router = APIRouter()
-_RUNTIME = GpuRuntimeManager(app_version="1.0.3")
+_RUNTIME = GpuRuntimeManager(app_version=__version__)
 _MODELS_LOCK = Path(__file__).resolve().parents[3] / "ocr" / "models.lock.json"
 
 
@@ -47,6 +49,19 @@ _TRIAL_WORKSPACE = _TRIAL_PYTHON.parents[3] if _TRIAL_PYTHON.is_file() else Path
 _TRIAL_OCR_ROOT = _TRIAL_WORKSPACE / "github-main" / "ocr"
 _TRIAL_SCRIPT = _TRIAL_OCR_ROOT / "src" / "glowfish_ocr" / "legacy" / "recognize_ppocrv6_onnx.py"
 _TRIAL_ACTIVE = False
+_TRIAL_LOCK = threading.Lock()
+
+
+def _set_trial_active(value: bool) -> None:
+    """线程安全地切换 trial CUDA 激活标志（多请求线程 + OCR 执行线程并发读写）。"""
+    global _TRIAL_ACTIVE
+    with _TRIAL_LOCK:
+        _TRIAL_ACTIVE = value
+
+
+def _trial_is_active() -> bool:
+    with _TRIAL_LOCK:
+        return _TRIAL_ACTIVE
 
 
 def _trial_ready():
@@ -64,11 +79,10 @@ def _preference(ctx):
 
 
 def _status(ctx):
-    global _TRIAL_ACTIVE
     _RUNTIME.refresh_device()
     status = _RUNTIME.status(preference=_preference(ctx))
     if _trial_ready():
-        enabled = _preference(ctx) == "auto" and _TRIAL_ACTIVE
+        enabled = _preference(ctx) == "auto" and _trial_is_active()
         status.update(
             state="active" if enabled else "ready",
             active_provider="cuda" if enabled else "cpu",
@@ -128,14 +142,12 @@ def execution_config(ctx, engine):
 
 def report_execution_failure(ctx, error):
     """Keep the opt-in preference but force this session back to CPU."""
-    global _TRIAL_ACTIVE
-    _TRIAL_ACTIVE = False
+    _set_trial_active(False)
     _RUNTIME.mark_degraded("gpu_oom" if "oom" in str(error).lower() else "cuda_provider_failed")
 
 
 def report_execution_success(ctx, config, recog_path):
     """Promote status only after the Worker has emitted CUDA page metadata."""
-    global _TRIAL_ACTIVE
     if config.get("provider") != "cuda":
         return
     try:
@@ -147,7 +159,7 @@ def report_execution_success(ctx, config, recog_path):
         report_execution_failure(ctx, exc)
         raise
     if config.get("gpu_runtime_version") == "local-trial":
-        _TRIAL_ACTIVE = True
+        _set_trial_active(True)
     else:
         _RUNTIME.mark_active()
 
@@ -193,8 +205,7 @@ def enable_acceleration(ctx: Ctx = Depends(ctx_dep)):
 @router.post("/api/ocr/acceleration/disable")
 def disable_acceleration(ctx: Ctx = Depends(ctx_dep)):
     """Switch future OCR requests to CPU but retain the optional runtime."""
-    global _TRIAL_ACTIVE
-    _TRIAL_ACTIVE = False
+    _set_trial_active(False)
     settings = load_settings(ctx)
     settings["ocr_acceleration"] = "cpu"
     save_settings(ctx, settings)

@@ -47,7 +47,19 @@ _RECOVERY_LOCK = threading.RLock()
 _WORKER = None
 _WORKER_LOCK = threading.Lock()
 _CUR_ENGINE = {"name": None}
+_ENGINE_LOCK = threading.Lock()
 _OCR_ENGINE_RUNNER = None
+
+
+def _set_cur_engine(name):
+    """线程安全地记录最近一次使用的引擎名（多请求线程并发写入时保持一致）。"""
+    with _ENGINE_LOCK:
+        _CUR_ENGINE["name"] = name
+
+
+def _get_cur_engine():
+    with _ENGINE_LOCK:
+        return _CUR_ENGINE["name"]
 
 
 def configure_ocr_engine_runner(runner=None):
@@ -122,7 +134,7 @@ def prewarm(engine: str = None):
     if runner is not None and hasattr(runner, "prewarm"):
         try:
             if runner.prewarm(eng):
-                _CUR_ENGINE["name"] = eng
+                _set_cur_engine(eng)
                 return True
         except Exception:
             _LOG.exception("Configured OCR runner prewarm failed engine=%s; using legacy runtime", eng)
@@ -130,7 +142,7 @@ def prewarm(engine: str = None):
         eng2, prefix, params = engines.resolve_engine(engine)
     except Exception:
         return False
-    _CUR_ENGINE["name"] = eng2
+    _set_cur_engine(eng2)
     return _worker_for(eng2, prefix, params) is not None
 
 
@@ -181,7 +193,7 @@ def shutdown_ocr():
 def _run_engine_one_shot(ctx: Ctx, image_dir: Path, recog_path: Path, engine: str, job=None):
     """Start exactly one short-lived OCR process; never create another resident worker."""
     eng2, prefix, params = engines.resolve_engine(engine)
-    _CUR_ENGINE["name"] = eng2
+    _set_cur_engine(eng2)
     progress_path = job.progress_path if job is not None else ctx.progress_path
     job_id = job.job_id if job is not None else None
     if job is not None:
@@ -206,7 +218,7 @@ def _run_engine_one_shot(ctx: Ctx, image_dir: Path, recog_path: Path, engine: st
 def _run_engine_legacy(ctx: Ctx, image_dir: Path, recog_path: Path, engine: str, job=None):
     """Explicit rollback runtime: one legacy resident attempt, then one one-shot."""
     eng2, prefix, params = engines.resolve_engine(engine)
-    _CUR_ENGINE["name"] = eng2
+    _set_cur_engine(eng2)
     progress_path = job.progress_path if job is not None else ctx.progress_path
     job_id = job.job_id if job is not None else None
     if job is not None:
@@ -509,7 +521,7 @@ def _maybe_low_recall_lightweight_fallback(ctx: Ctx, image_dir: Path, recog_path
                 alt.unlink()
         except Exception:
             pass
-    _CUR_ENGINE["name"] = eng
+    _set_cur_engine(eng)
     return eng
 def _mark_fallback(ctx: Ctx, frm: str, err: Exception, to: str = None):
     """Internal helper."""
@@ -853,12 +865,16 @@ def thumb(token: str, rel: str, page: int = 0, ctx: Ctx = Depends(ctx_dep)):
         if fp.suffix.lower() == ".pdf":
             import fitz
             doc = fitz.open(str(fp))
+            if len(doc) == 0:
+                doc.close()
+                raise HTTPException(400, "空 PDF 文件，无法生成缩略图")
             pno = min(max(0, (page or 1) - 1), len(doc) - 1)
             pix = doc[pno].get_pixmap(dpi=36)
             img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
             doc.close()
         else:
-            img = ImageOps.exif_transpose(Image.open(fp)).convert("RGB")
+            with Image.open(fp) as im:
+                img = ImageOps.exif_transpose(im).convert("RGB")
         img.thumbnail((120, 120))
         buf = io.BytesIO(); img.save(buf, "JPEG", quality=80)
         return Response(buf.getvalue(), media_type="image/jpeg")
@@ -892,8 +908,9 @@ def import_progress(ctx: Ctx = Depends(ctx_dep)):
             payload["published"] = latest.get("published", len(latest["document_meta"].get("pages") or []))
         return payload
     p = ctx.read_progress()
-    if isinstance(p, dict) and _CUR_ENGINE["name"]:
-        p.setdefault("engine", _CUR_ENGINE["name"])
+    cur_engine = _get_cur_engine()
+    if isinstance(p, dict) and cur_engine:
+        p.setdefault("engine", cur_engine)
     return p
 @router.get("/api/import_jobs/recoverable")
 def recoverable_import_jobs(ctx: Ctx = Depends(ctx_dep)):
@@ -1071,9 +1088,13 @@ async def open_sources(req: Request, ctx: Ctx = Depends(ctx_dep)):
         if same:
             shutil.rmtree(bdir, ignore_errors=True)
         else:
-            base_b, i = batch, 2
-            while (ctx.work / batch).exists():
+            # 先为自增后缀预留空间（最多 6 位 "2"~"999999"），避免截断后与基底相同导致死循环
+            base_b = safefs.coerce_batch(batch, max_len=114)
+            i = 2
+            while (ctx.work / batch).exists() and i < 1000000:
                 batch = safefs.coerce_batch(f"{base_b}{i}"); i += 1
+            if (ctx.work / batch).exists():
+                raise HTTPException(400, "批次名冲突，无法生成唯一名称")
             bdir = ctx.work / batch
     src_dir = bdir / "_src"
     try:
@@ -1277,14 +1298,17 @@ def get_image(batch: str, page_id: str, ctx: Ctx = Depends(ctx_dep)):
     if fp.suffix.lower() in (".tif", ".tiff", ".bmp", ".webp"):
         from PIL import Image
         buf = io.BytesIO()
-        Image.open(fp).convert("RGB").save(buf, "PNG")
+        with Image.open(fp) as im:
+            im.convert("RGB").save(buf, "PNG")
         return Response(buf.getvalue(), media_type="image/png")
     return FileResponse(str(fp))
 
 @router.post("/api/save")
 async def save(req: Request, ctx: Ctx = Depends(ctx_dep)):
     body = await req.json()
-    proof = body["proof"]
+    proof = body.get("proof")
+    if not isinstance(proof, dict):
+        raise HTTPException(400, "proof 字段缺失或格式错误")
     reg = ctx.reg(safefs.safe_batch(proof.get("batch", "")))
     if not reg:
         raise HTTPException(404, "Batch not loaded")
@@ -1302,6 +1326,10 @@ async def reocr_region(req: Request, ctx: Ctx = Depends(ctx_dep)):
     box = body.get("box") or []
     if len(box) != 4:
         raise HTTPException(400, "No text provided")
+    try:
+        coords = [float(v) for v in box]
+    except (TypeError, ValueError):
+        raise HTTPException(400, "box 坐标必须为数字")
     reg = ctx.reg(batch)
     if not reg:
         raise HTTPException(404, "Batch not found")
@@ -1314,7 +1342,7 @@ async def reocr_region(req: Request, ctx: Ctx = Depends(ctx_dep)):
     if not img_path:
         raise HTTPException(404, "Line not found")
     from PIL import Image
-    x1, y1, x2, y2 = [int(round(float(v))) for v in box]
+    x1, y1, x2, y2 = [int(round(v)) for v in coords]
     x1, x2 = sorted((max(0, x1), max(0, x2)))
     y1, y2 = sorted((max(0, y1), max(0, y2)))
     with Image.open(img_path).convert("RGB") as img:

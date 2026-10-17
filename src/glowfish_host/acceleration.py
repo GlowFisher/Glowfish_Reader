@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import base64
 import shutil
@@ -420,7 +421,17 @@ class GpuRuntimeInstaller:
             staging.replace(target)
             staging = None
             self.manager.install_verified(manifest, target)
-        except Exception:
+        except zipfile.BadZipFile as exc:
+            logging.getLogger("glowfish.gpu").exception("GPU runtime archive is corrupt: %s", exc)
+            self.manager.mark_failure("hash_mismatch")
+        except ValueError as exc:
+            logging.getLogger("glowfish.gpu").exception("GPU runtime manifest/validation error: %s", exc)
+            self.manager.mark_failure("runtime_manifest_unavailable")
+        except OSError as exc:
+            logging.getLogger("glowfish.gpu").exception("GPU runtime download/IO error: %s", exc)
+            self.manager.mark_failure("download_failed")
+        except Exception as exc:
+            logging.getLogger("glowfish.gpu").exception("GPU runtime install failed unexpectedly: %s", exc)
             self.manager.mark_failure("download_failed")
         finally:
             if archive is not None:

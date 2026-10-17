@@ -5,9 +5,9 @@ single: False 表示「无需登录、直接放行」——本机单用户，无
 """
 from fastapi import APIRouter
 
-router = APIRouter()
+from userctx import LOCAL_USER
 
-LOCAL_USER = {"id": "local", "username": "local", "display": "本机用户"}
+router = APIRouter()
 
 
 @router.get("/api/me")

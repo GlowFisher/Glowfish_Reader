@@ -106,7 +106,7 @@ def test_content_runner_reports_legacy_fallback_success_and_failure(tmp_path, mo
     def successful_legacy(ctx, image_dir, recog_path, engine, job=None):
         recog_path.write_text("{}", encoding="utf-8")
 
-    monkeypatch.setattr(content_api, "_run_engine_legacy", successful_legacy)
+    monkeypatch.setattr(content_api, "_run_engine_one_shot", successful_legacy)
     content_api._run_engine(ctx, tmp_path, output, "ppocrv6_onnx_high")
     assert runner.events[-1]["success"] is True
     assert isinstance(runner.events[-1]["error"], RuntimeError)
@@ -115,7 +115,7 @@ def test_content_runner_reports_legacy_fallback_success_and_failure(tmp_path, mo
         raise ValueError("legacy unavailable")
 
     output.unlink()
-    monkeypatch.setattr(content_api, "_run_engine_legacy", failed_legacy)
+    monkeypatch.setattr(content_api, "_run_engine_one_shot", failed_legacy)
     with pytest.raises(ValueError):
         content_api._run_engine(ctx, tmp_path, output, "ppocrv6_onnx_high")
     assert runner.events[-1]["success"] is False

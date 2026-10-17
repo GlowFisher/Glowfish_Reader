@@ -34,7 +34,7 @@ hiddenimports = []
 
 # 本地业务模块（部分在函数内条件 import / 经 sys.path 插入后导入，静态分析会漏，显式声明）
 hiddenimports += [
-    "glowfish_host", "glowfish_host.app", "glowfish_host.services", "server_v2",
+    "glowfish_host", "glowfish_host.app", "server_v2",
     "glowfish_ocr", "glowfish_ocr.contracts", "glowfish_ocr.registry",
     "glowfish_ocr.service", "glowfish_ocr.resident", "glowfish_ocr.validation",
     "glowfish_ocr.checkpoint",
