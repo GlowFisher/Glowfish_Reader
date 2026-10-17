@@ -7,6 +7,11 @@
     resume: (jobId) => http.post(`/api/import_jobs/${encodeURIComponent(jobId)}/resume`, {}),
     discard: (jobId) => http.json(`/api/import_jobs/${encodeURIComponent(jobId)}`, { method: "DELETE" }),
     reocrRegion: (body) => http.post("/api/reocr_region", body),
-    reocrBatch: (body) => http.post("/api/reocr_batch", body)
+    reocrBatch: (body) => http.post("/api/reocr_batch", body),
+    acceleration: () => http.json("/api/ocr/acceleration"),
+    installAcceleration: () => http.post("/api/ocr/acceleration/install", {}),
+    enableAcceleration: () => http.post("/api/ocr/acceleration/enable", {}),
+    disableAcceleration: () => http.post("/api/ocr/acceleration/disable", {}),
+    uninstallAcceleration: () => http.json("/api/ocr/acceleration", { method: "DELETE" })
   });
 })(window);

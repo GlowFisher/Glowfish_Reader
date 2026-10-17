@@ -9,6 +9,7 @@ let settings = {
   default_script: "s", punct_pos: "caret", confirm_delete: true, text_layout: "horizontal",
   text_font: "songti", text_size: 16, drag_anim: true, show_row_ops: true, punct_backend: "local", proof_mode: "page",
   engine_pref: "",
+  ocr_acceleration: "cpu",
   // 底部通用（export_with_annot 为前端新增项，仅 localStorage 持久，不入后端 settings.json）
   export_format: "docx", export_with_image: false, export_with_annot: false,
   export_page_marks: false, autosave: 0, auto_check_update: true,
@@ -109,6 +110,44 @@ function renderSettingsPanel() {
     const v = Math.max(it.min, Math.min(it.max, (settings[b.dataset.knob] | 0) + parseInt(b.dataset.d, 10)));
     settings[b.dataset.knob] = v; updateKnobs(); liveTextSize();
   });
+  renderGpuAccelerationCard(body);
+}
+
+function renderGpuAccelerationCard(body) {
+  const card = document.createElement("section");
+  card.className = "set-sec gpu-acceleration";
+  card.innerHTML = `<div class="set-sec-h">GPU 加速（实验功能）</div><div class="set-note" data-gpu-status>正在检查本机 GPU 运行时…</div><div class="set-row"><span class="set-label" data-gpu-detail>默认使用 CPU；GPU 需手动安装并启用。</span><span class="seg"><button class="btn btn-seg" data-gpu-install>安装组件</button><button class="btn btn-seg" data-gpu-enable disabled>启用 GPU</button><button class="btn btn-seg" data-gpu-disable disabled>使用 CPU</button><button class="btn btn-seg" data-gpu-remove>卸载组件</button></span></div>`;
+  body.appendChild(card);
+  const status = card.querySelector("[data-gpu-status]");
+  const detail = card.querySelector("[data-gpu-detail]");
+  const enable = card.querySelector("[data-gpu-enable]");
+  const disable = card.querySelector("[data-gpu-disable]");
+  const install = card.querySelector("[data-gpu-install]");
+  const remove = card.querySelector("[data-gpu-remove]");
+  const refresh = async () => {
+    try {
+      const value = await GlowfishApi.ocr.acceleration();
+      const awaitingFirstCudaResult = value.preference === "auto" && value.state === "ready";
+      const usingCuda = value.preference === "auto" && value.state === "active";
+      status.textContent = usingCuda
+        ? "状态：active（本次 OCR 已确认使用 CUDA）"
+        : awaitingFirstCudaResult
+        ? "状态：ready（GPU 已通过自检，将在下一次识别后确认启用）"
+        : value.preference === "cpu" && value.runtime_version
+        ? "状态：已安装（当前使用 CPU）"
+        : `状态：${value.state}${value.reason_code ? `（${value.reason_code}）` : ""}`;
+      detail.textContent = value.device && value.device.name ? `${value.device.name} · ${value.vram_mb || "?"} MB` : "默认使用 CPU；安装不会在后台自动开始。";
+      enable.disabled = !["ready", "active"].includes(value.state) || value.preference === "auto";
+      disable.disabled = value.preference !== "auto";
+      enable.textContent = awaitingFirstCudaResult ? "GPU ready" : "启用 GPU";
+      install.disabled = value.runtime_version === "local-trial";
+    } catch (_) { status.textContent = "GPU 状态暂不可用；OCR 将继续使用 CPU。"; }
+  };
+  install.onclick = async () => { await GlowfishApi.ocr.installAcceleration(); await refresh(); };
+  enable.onclick = async () => { await GlowfishApi.ocr.enableAcceleration(); settings.ocr_acceleration = "auto"; await refresh(); };
+  disable.onclick = async () => { await GlowfishApi.ocr.disableAcceleration(); settings.ocr_acceleration = "cpu"; await refresh(); };
+  remove.onclick = async () => { await GlowfishApi.ocr.uninstallAcceleration(); settings.ocr_acceleration = "cpu"; await refresh(); };
+  refresh();
 }
 function findItem(key) { for (const s of SET_SCHEMA) for (const it of s.items) if (it.key === key) return it; }
 
