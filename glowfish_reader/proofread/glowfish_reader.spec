@@ -38,16 +38,13 @@ hiddenimports += [
     "glowfish_ocr", "glowfish_ocr.contracts", "glowfish_ocr.registry",
     "glowfish_ocr.service", "glowfish_ocr.resident", "glowfish_ocr.validation",
     "glowfish_ocr.checkpoint",
-    "server", "appconfig", "runtime_logging", "auth", "auth_api", "content_api", "export_api",
+    "server", "appconfig", "runtime_logging", "me_api", "content_api", "export_api",
     "ocr_component_runtime", "ocr_runtime_benchmark", "runtime_status_api", "psutil",
     "library_api", "userctx", "safefs", "settings_store", "engines", "ingest",
     "proof_model", "t2s_fixes", "punctuate_local", "paddlex_cache", "recognize", "recognize_ppocrv6",
     "ocr_recovery",
     "recognize_ppocrv6_onnx", "build_docx",
     "det_scale", "ocr_confusion", "ocr_enhance", "capabilities",
-    "license_api", "licensing", "licensing.envelope", "licensing.keys",
-    "licensing.verify", "licensing.fingerprint",
-    "licensing.store", "licensing.client", "license_common", "license_common.signing", "_cffi_backend",
 ]
 
 
@@ -89,9 +86,9 @@ datas += [(_ocr_smoke, os.path.join("assets", "selftest"))]
 # 词表：域词修复 / 形近字 / 人名切分依赖，0.4MB，缺了纠错层会加载成空表静默 no-op。
 datas += [(_require(os.path.join(OCR_COMPONENT, "src", "glowfish_ocr", "legacy", "assets", "lexicon"), "OCR lexicon"), os.path.join("assets", "lexicon"))]
 
-# 第三方需带数据/动态库/子模块的包（nacl 带 _sodium C 扩展，授权离线验签用）
+# 第三方需带数据/动态库/子模块的包
 # shapely / pyclipper 是 PaddleX OCR pipeline 运行时依赖，collect_all 不会自动拉。
-for pkg in ("paddleocr", "paddlex", "opencc", "onnxruntime", "nacl",
+for pkg in ("paddleocr", "paddlex", "opencc", "onnxruntime",
             "shapely", "pyclipper"):
     d, b, h = collect_all(pkg)
     datas += d

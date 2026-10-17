@@ -169,15 +169,13 @@ def _selftest():
     """无界面自检（首启自检 / 打包冒烟）：起服务→探活→打 /api/me、/api/capabilities→退。
 
     临时数据根，绝不污染用户数据。打印 SELFTEST OK/FAIL，退出码 0/1。
-    注：原先打的 /api/license/status 随激活码机制退役已删除（license_api 现无路由），
-    改打同样未设门的 /api/capabilities——顺带确认模型/词表随包到位。
-    指向不可达授权服务器，避免自检联网拖慢。
+    注：原先打的 /api/license/status 随激活码机制退役已删除，账号/授权/升级/公告
+    功能随开源发布整体归档（见 archived/）；此处改打未设门的 /api/capabilities。
     """
     import json
     import tempfile
     import urllib.request
     os.environ["SHUPAI_DATA_DIR"] = tempfile.mkdtemp(prefix="shupai_selftest_")
-    os.environ["SHUPAI_LICENSE_SERVER"] = "http://127.0.0.1:1"
     server, host, port = _start_server()
     if not _wait_until_up(host, port):
         print("SELFTEST FAIL: 服务未在限时内就绪")
@@ -189,7 +187,7 @@ def _selftest():
         runtime = json.loads(urllib.request.urlopen(base + "/api/runtime/status", timeout=5).read())
         runtime_mode = (runtime.get("ocr") or {}).get("mode")
         ok = (
-            me.get("single") is True and caps.get("ok") is True
+            me.get("single") is False and caps.get("ok") is True
             and runtime_mode in {"legacy", "component"}
         )
         missing = [c["label"] for c in caps.get("capabilities", {}).values() if not c["ok"]]
@@ -448,19 +446,6 @@ def run():
 
     win = webview.create_window(f"Glowfish Reader V{__version__}", f"http://{host}:{port}/",
                                 width=1280, height=860, min_size=(960, 640), js_api=_Api())
-
-    def _shutdown_for_update():
-        """更新 apply 调用：销毁窗口解除 webview.start() 阻塞 → 下方优雅停服 → 进程退出，
-        让已 Popen 拉起的安装器就地覆盖并重启。从服务线程调用，失败静默。"""
-        try:
-            win.destroy()
-        except Exception:
-            pass
-    try:
-        import update_api
-        update_api.register_shutdown(_shutdown_for_update)
-    except Exception:
-        pass
 
     import appconfig
     webview_storage = appconfig.data_root() / "webview_data"

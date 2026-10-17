@@ -209,14 +209,6 @@ def should_open_browser():
     return DEFAULTS["open_browser"]
 
 
-def get_account_entitlement():
-    """Return account entitlement display config for the account menu."""
-    mode = (_env("SHUPAI_ACCOUNT_MODE") or _load_file().get("account_mode") or "trial").strip().lower()
-    expires_at = (_env("SHUPAI_ACCOUNT_EXPIRES_AT") or _load_file().get("account_expires_at") or "2026-08-31").strip()
-    if mode not in ("trial", "member") or not expires_at:
-        return None
-    return {"mode": mode, "expires_at": expires_at}
-
 def get_mode():
     """运行模式 single/multi。
     · 打包态：锁定为 bundle 内 sku.txt（消费版 single / 机构版 multi），**忽略 SHUPAI_MODE

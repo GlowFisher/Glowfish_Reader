@@ -10,17 +10,16 @@ import logging
 from glowfish_host import AppComponents, create_app
 
 import appconfig
-import auth_api
 import capabilities_api
 import content_api
 import export_api
+import gpu_acceleration_api
 import library_api
-import notice_api
+import me_api
 import ocr_component_runtime
 import runtime_status_api
 import subprocess_env
 import ui_assets
-import update_api
 
 
 (appconfig.data_root() / "users").mkdir(parents=True, exist_ok=True)
@@ -31,7 +30,11 @@ OCR_CACHE = subprocess_env.prepare_ocr_environment(cleanup_legacy=True)
 def _configure_ocr_runtime():
     policy = ocr_component_runtime.component_runtime_mode()
     if policy == "component":
-        runner = ocr_component_runtime.ComponentOcrEngineRunner()
+        runner = ocr_component_runtime.ComponentOcrEngineRunner(
+            provider_config_factory=gpu_acceleration_api.execution_config,
+            provider_failure_handler=gpu_acceleration_api.report_execution_failure,
+            provider_success_handler=gpu_acceleration_api.report_execution_success,
+        )
         content_api.configure_ocr_engine_runner(runner)
         return policy, runner
     content_api.configure_ocr_engine_runner(None)
@@ -70,13 +73,12 @@ runtime_status_api.configure_runtime_status_provider(_runtime_status)
 app = create_app(
     AppComponents(
         routers=(
-            auth_api.router,
-            update_api.router,
-            notice_api.router,
+            me_api.router,
             capabilities_api.router,
             content_api.router,
             export_api.router,
             library_api.router,
+            gpu_acceleration_api.router,
             runtime_status_api.router,
         ),
         ui_dist=ui_assets.ui_dist(),

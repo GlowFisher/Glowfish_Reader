@@ -1,2 +1,0 @@
-"""Shared licensing protocol helpers."""
-

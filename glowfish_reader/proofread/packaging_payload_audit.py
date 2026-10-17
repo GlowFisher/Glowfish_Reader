@@ -13,7 +13,7 @@ from PyInstaller.archive.readers import CArchiveReader
 FORBIDDEN_PARTS = {".git", ".planning", "license_server", "_keys"}
 FORBIDDEN_SUFFIXES = {".key", ".pfx", ".p12", ".db", ".sqlite", ".sqlite3"}
 FORBIDDEN_NAMES = {".env", "license.json", "last_error.log", "users.db", "account.db"}
-CLIENT_SOURCE_PACKAGES = {"licensing", "license_common", "pipeline"}
+CLIENT_SOURCE_PACKAGES = {"pipeline"}
 FORBIDDEN_ARCHIVE_PREFIXES = ("license_server", "serverapp")
 
 

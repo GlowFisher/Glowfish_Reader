@@ -12,7 +12,7 @@
 #
 # Usage examples:
 #   .\release.ps1 -Notes "1.0.3: PP-OCRv6 pipeline and notebook fixes"
-#   .\release.ps1 -Notes "..." -Upload -SshKey $env:USERPROFILE\.ssh\glowfish_license_deploy
+#   .\release.ps1 -Notes "..." -Upload -SshKey <your-ssh-key>
 #   (avoid -Build under PS5.1: run PyInstaller manually first, see HANDOFF section 8)
 [CmdletBinding()]
 param(
@@ -21,10 +21,10 @@ param(
   [switch]$Mandatory,
   [switch]$Build,
   [switch]$Upload,
-  [string]$SshTarget   = "root@47.83.12.17",
+  [string]$SshTarget   = "<your-server>",
   [string]$RemoteDlDir = "/var/www/glowfish/dl",
   [string]$RemoteManifest = "/var/www/glowfish/update.json",
-  [string]$DownloadBase = "https://license.glowfishreader.com/dl",
+  [string]$DownloadBase = "https://<your-download-host>/dl",
   [string]$SshKey = "",
   [string]$BuildRoot = "",
   [string]$OutputDir = "",
