@@ -1,0 +1,4 @@
+# Torch 2.13+ ONNX exporter supplement.
+# Install after requirements-model-build.txt when regenerating the MLM asset.
+-r requirements-model-build.txt
+onnxscript==0.7.1

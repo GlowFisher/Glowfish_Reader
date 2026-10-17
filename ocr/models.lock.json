@@ -1,0 +1,146 @@
+{
+  "schema_version": 2,
+  "component": "glowfish-ocr",
+  "source": "local-curated-v2",
+  "default_root": "host/glowfish_reader/proofread/models",
+  "files": [
+    {
+      "path": "ppocrv6_onnx/det/inference.json",
+      "bytes": 312150,
+      "sha256": "0f1a7ec35da36173529c7a60238b7f7919e3831929c3f700ad90ad4896adecd5",
+      "download": {
+        "repo": "PaddlePaddle/PP-OCRv6_medium_det_onnx",
+        "file": "inference.json",
+        "mirrors": [
+          "https://huggingface.co",
+          "https://hf-mirror.com"
+        ]
+      }
+    },
+    {
+      "path": "ppocrv6_onnx/det/inference.onnx",
+      "bytes": 62032837,
+      "sha256": "eb13b44b25bb36f89528b68720af8a61d9cf381176107f465db1757b65d086e1",
+      "download": {
+        "repo": "PaddlePaddle/PP-OCRv6_medium_det_onnx",
+        "file": "inference.onnx",
+        "mirrors": [
+          "https://huggingface.co",
+          "https://hf-mirror.com"
+        ]
+      }
+    },
+    {
+      "path": "ppocrv6_onnx/det/inference.yml",
+      "bytes": 886,
+      "sha256": "7298d5ead546584af2504d03355f881ac7a7bc0eb1e282d3e159277c1d0af871",
+      "download": {
+        "repo": "PaddlePaddle/PP-OCRv6_medium_det_onnx",
+        "file": "inference.yml",
+        "mirrors": [
+          "https://huggingface.co",
+          "https://hf-mirror.com"
+        ]
+      }
+    },
+    {
+      "path": "ppocrv6_onnx/rec/inference.json",
+      "bytes": 221814,
+      "sha256": "0b2e25e990bd072f1bf77d59d67d508bce6c4bd44af6624e0fb27d6da2cd00e8",
+      "download": {
+        "repo": "PaddlePaddle/PP-OCRv6_medium_rec_onnx",
+        "file": "inference.json",
+        "mirrors": [
+          "https://huggingface.co",
+          "https://hf-mirror.com"
+        ]
+      }
+    },
+    {
+      "path": "ppocrv6_onnx/rec/inference.onnx",
+      "bytes": 76554979,
+      "sha256": "9c09abf0957f7968c7586464b7397b84ad2387a0497a351af40e9acc71b673ba",
+      "download": {
+        "repo": "PaddlePaddle/PP-OCRv6_medium_rec_onnx",
+        "file": "inference.onnx",
+        "mirrors": [
+          "https://huggingface.co",
+          "https://hf-mirror.com"
+        ]
+      }
+    },
+    {
+      "path": "ppocrv6_onnx/rec/inference.yml",
+      "bytes": 150580,
+      "sha256": "991b700facf5b50a7de193468207d5f4255b538dde0d312ae3b7c7a9b6873129",
+      "download": {
+        "repo": "PaddlePaddle/PP-OCRv6_medium_rec_onnx",
+        "file": "inference.yml",
+        "mirrors": [
+          "https://huggingface.co",
+          "https://hf-mirror.com"
+        ]
+      }
+    },
+    {
+      "path": "punct/meta.json",
+      "bytes": 545,
+      "sha256": "6c973c866c6dea27a71c1986a5917458ae4d49f61d41e48ca18eda27fa563953",
+      "build": {
+        "script": "host/glowfish_reader/proofread/setup_punct_model.py",
+        "source_model": "raynardj/classical-chinese-punctuation-guwen-biaodian",
+        "note": "由 PyTorch 权重本地导出为 ONNX，需 torch+transformers 环境"
+      }
+    },
+    {
+      "path": "punct/model_int8.onnx",
+      "bytes": 102519024,
+      "sha256": "bb5f916b1caeb7771c445bc1cf1ce82231993750e635f8e26150f90a3c43947e",
+      "build": {
+        "script": "host/glowfish_reader/proofread/setup_punct_model.py",
+        "source_model": "raynardj/classical-chinese-punctuation-guwen-biaodian",
+        "note": "由 PyTorch 权重本地导出并 int8 量化，需 torch+transformers 环境"
+      }
+    },
+    {
+      "path": "punct/vocab.txt",
+      "bytes": 130668,
+      "sha256": "f7863b040bae29ac474065729355252248c92d41141c1e09fbf21dd3e593a238",
+      "build": {
+        "script": "host/glowfish_reader/proofread/setup_punct_model.py",
+        "source_model": "raynardj/classical-chinese-punctuation-guwen-biaodian",
+        "note": "由 tokenizer 词表导出"
+      }
+    },
+    {
+      "path": "mlm/meta.json",
+      "bytes": 176,
+      "sha256": "0d982e83d9cb57c99cf3815dbe76b39817d2bc15aa9023c40ff2e0184bd5539f",
+      "build": {
+        "script": "host/glowfish_reader/proofread/setup_mlm_model.py",
+        "source_model": "ethanyt/guwenbert-base",
+        "note": "由 PyTorch 权重本地导出为 ONNX，需 torch+transformers 环境"
+      }
+    },
+    {
+      "path": "mlm/model_int8.onnx",
+      "bytes": 106487503,
+      "sha256": "fab58831816b32eabe28efe41ba6e2bf2973dfc700970e2eb0fa8b3636f0e0c4",
+      "build": {
+        "script": "host/glowfish_reader/proofread/setup_mlm_model.py",
+        "source_model": "ethanyt/guwenbert-base",
+        "note": "由 PyTorch 权重本地导出并 int8 量化，需 torch+transformers 环境"
+      }
+    },
+    {
+      "path": "mlm/vocab.txt",
+      "bytes": 116769,
+      "sha256": "805349b5ef4fec3d63e056e300c861d401387c2df286a21fa5d344518d6f25b1",
+      "build": {
+        "script": "host/glowfish_reader/proofread/setup_mlm_model.py",
+        "source_model": "ethanyt/guwenbert-base",
+        "note": "由 tokenizer 词表导出"
+      }
+    }
+  ]
+}

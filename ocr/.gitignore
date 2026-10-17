@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.pytest_tmp*/
+build/
+dist/
+*.egg-info/
+models/
+_work/
+bench/_ocr_cache/
+bench/_hw_out/
+bench/out/
+.pip_cache/
+.pytest_*/
+.wheel_test/
+.tmp/
