@@ -246,6 +246,12 @@ body.img-lite #pageImg { image-rendering: pixelated; }
 .seg .btn-seg.on { background: var(--brand); color: #fff; }
 .seg .btn-seg.on:hover { background: var(--brand-d); color: #fff; }
 .set-note { font-size: 12px; color: #999; margin: 0 0 9px; line-height: 1.6; }
+/* GPU 加速卡片：设备名较长，允许换行，避免把右侧按钮组挤压变形 */
+.gpu-acceleration .set-row { flex-wrap: wrap; row-gap: 8px; }
+.gpu-acceleration .set-label { white-space: normal; word-break: break-word; flex: 1 1 100%; }
+.gpu-acceleration .seg { flex: 0 0 auto; }
+.gpu-acceleration .btn-seg { white-space: nowrap; }
+.gpu-acceleration .btn-seg[disabled]:not(.on) { opacity: .45; cursor: not-allowed; }
 .modal-actions .reset { margin-right: auto; }
 /* ===== 鏂板浜岋細鍒犻櫎褰撳墠椤垫寜閽紙缈婚〉妗嗗唴锛屾祬绾㈢嚎鏉″尯鍒嗛粦鑹茬澶达級 ===== */
 .del-page { color: #d9534f; }

@@ -12,7 +12,7 @@ let settings = {
   ocr_acceleration: "cpu",
   // 底部通用（export_with_annot 为前端新增项，仅 localStorage 持久，不入后端 settings.json）
   export_format: "docx", export_with_image: false, export_with_annot: false,
-  export_page_marks: false, autosave: 0, auto_check_update: true,
+  export_page_marks: false, autosave: 0,
 };
 
 const SET_SCHEMA = [
@@ -23,7 +23,6 @@ const SET_SCHEMA = [
     { key: "export_with_annot", label: "导出默认带批注笔记", opts: [[true, "开启"], [false, "关闭"]], note: "开启后导出下拉的「是否带批注笔记」默认勾选；导出时仍可临时改变本次勾选。" },
     { key: "export_page_marks", label: "导出默认标注页码", opts: [[true, "开启"], [false, "关闭"]], note: "开启后导出每页正文前自动插入「【第N页】」（页号取 PDF 源页或顺序号）；导出下拉可临时改变本次勾选。" },
     { key: "autosave", label: "自动保存", opts: [[0, "关闭"], [60, "1分钟"], [180, "3分钟"]], note: "按间隔自动保存修订草稿，防意外丢失。" },
-    { key: "auto_check_update", label: "自动检查更新", opts: [[true, "开启"], [false, "关闭"]], note: "启动后后台向官方服务器自动检查新版本（仅传版本号，不上传任何史料）。" },
   ] },
   { title: "底图区设置", collapsible: true, items: [
     { key: "show_zoom_ctl", label: "缩放按钮", opts: [[true, "显示"], [false, "隐藏"]], note: "原图栏支持滚轮缩放、按住拖拽平移；隐藏按钮后缩放/拖拽不受影响。" },
@@ -130,16 +129,19 @@ function renderGpuAccelerationCard(body) {
       const awaitingFirstCudaResult = value.preference === "auto" && value.state === "ready";
       const usingCuda = value.preference === "auto" && value.state === "active";
       status.textContent = usingCuda
-        ? "状态：active（本次 OCR 已确认使用 CUDA）"
+        ? "状态：启用GPU加速"
         : awaitingFirstCudaResult
-        ? "状态：ready（GPU 已通过自检，将在下一次识别后确认启用）"
+        ? "状态：启用GPU加速"
         : value.preference === "cpu" && value.runtime_version
         ? "状态：已安装（当前使用 CPU）"
         : `状态：${value.state}${value.reason_code ? `（${value.reason_code}）` : ""}`;
       detail.textContent = value.device && value.device.name ? `${value.device.name} · ${value.vram_mb || "?"} MB` : "默认使用 CPU；安装不会在后台自动开始。";
       enable.disabled = !["ready", "active"].includes(value.state) || value.preference === "auto";
       disable.disabled = value.preference !== "auto";
-      enable.textContent = awaitingFirstCudaResult ? "GPU ready" : "启用 GPU";
+      enable.textContent = "使用 GPU";
+      // 红色高亮 = 当前生效的选择：preference auto → 「使用 GPU」，cpu → 「使用 CPU」
+      enable.classList.toggle("on", value.preference === "auto");
+      disable.classList.toggle("on", value.preference !== "auto");
       install.disabled = value.runtime_version === "local-trial";
     } catch (_) { status.textContent = "GPU 状态暂不可用；OCR 将继续使用 CPU。"; }
   };
