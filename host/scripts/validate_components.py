@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import subprocess
 from pathlib import Path
 
 from workspace_paths import component_root, workspace_root
@@ -11,16 +10,10 @@ manifest = json.loads((ROOT / "component-manifest.json").read_text(encoding="utf
 if manifest.get("schema_version") != 1:
     raise SystemExit("unsupported component manifest schema")
 
-for name in ("contracts", "ui", "ocr", "account"):
-    expected = manifest[name]["commit"]
+# 单仓库 monorepo：组件均为同仓目录，仅校验目录存在，不再做跨仓库 commit 锁定。
+for name in ("contracts", "ui", "ocr"):
     repo = component_root(name)
-    actual = subprocess.check_output(
-        ["git", "-C", str(repo), "rev-parse", "HEAD"], text=True
-    ).strip()
-    if actual != expected:
-        raise SystemExit(f"{name} manifest/worktree mismatch: {expected} != {actual}")
-    if name != "contracts":
-        lock = (repo / "contracts.lock").read_text(encoding="ascii").strip()
-        if lock != manifest["contracts"]["commit"]:
-            raise SystemExit(f"{name} uses contracts {lock}, Host uses {manifest['contracts']['commit']}")
-print(f"component manifest and all contracts pins verified from {workspace_root()}")
+    if not repo.is_dir():
+        raise SystemExit(f"component directory missing: {name}")
+
+print(f"component directories verified from {workspace_root()}")

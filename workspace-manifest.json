@@ -1,0 +1,10 @@
+{
+  "schema_version": 2,
+  "product_version": "1.0.3",
+  "components": ["host", "ui", "ocr", "contracts"],
+  "models": {
+    "root": "host/glowfish_reader/proofread/models",
+    "lock": "ocr/models.lock.json"
+  },
+  "release_artifacts": "releases/internal-validation/1.0.3"
+}

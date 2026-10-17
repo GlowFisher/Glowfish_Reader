@@ -1,0 +1,28 @@
+/.venv/
+/.build/
+/.build-v1.0.3/
+/.pytest-*/
+/.pytest_cache/
+/releases/
+/handoff/
+*.exe
+update.json
+*.bundle
+
+# Python 编译产物
+__pycache__/
+*.pyc
+*.egg-info/
+
+# 敏感与本地产物
+_keys/
+.env
+*.db
+*.sqlite*
+tmp/
+*.zip
+*.log
+
+# 归档的用户/账号/授权/登录系统代码（含授权服务器地址、短信配置等私有信息）
+# 开源后不再需要登录系统，此目录仅作本地留档，不随仓库发布。
+/archived/

@@ -4,7 +4,7 @@ import os
 from pathlib import Path
 
 HOST_ROOT = Path(__file__).resolve().parents[1]
-COMPONENT_NAMES = ("contracts", "ui", "ocr", "account")
+COMPONENT_NAMES = ("contracts", "ui", "ocr")
 
 
 def workspace_root() -> Path:
