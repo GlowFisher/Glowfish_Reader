@@ -11,6 +11,7 @@
 """
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -22,7 +23,9 @@ except Exception:
 BENCH = Path(__file__).resolve().parent
 ROOT = BENCH.parent
 DEFAULT_TABLE = ROOT / "proofread" / "assets" / "lexicon" / "domain_fixes.txt"
-DIARY_CORPUS = Path(r"D:\CC-first\刘大鹏研究\data\perday\_all.jsonl")
+# 可选的日记语料（用于审计域词修复命中率）；通过环境变量指定，避免硬编码本机路径。
+_DIARY_CORPUS_ENV = os.environ.get("GLOWFISH_DIARY_CORPUS")
+DIARY_CORPUS = Path(_DIARY_CORPUS_ENV) if _DIARY_CORPUS_ENV else None
 
 
 def load_table(path):
@@ -44,7 +47,7 @@ def load_table(path):
 def clean_corpus_texts():
     """干净语料：退想斋整理版正文 + bench gold 全文。"""
     texts = []
-    if DIARY_CORPUS.exists():
+    if DIARY_CORPUS and DIARY_CORPUS.exists():
         for line in DIARY_CORPUS.read_text(encoding="utf-8").splitlines():
             if not line.strip():
                 continue
