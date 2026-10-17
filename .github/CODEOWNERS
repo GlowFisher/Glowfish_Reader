@@ -1,0 +1,13 @@
+# 默认所有者为仓库维护者
+* @Pluto3698
+
+# 组件目录
+/host/ @Pluto3698
+/ui/ @Pluto3698
+/ocr/ @Pluto3698
+/contracts/ @Pluto3698
+
+# 关键清单与打包
+/ocr/models.lock.json @Pluto3698
+/host/component-manifest.json @Pluto3698
+/host/packaging/ @Pluto3698
