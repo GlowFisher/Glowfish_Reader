@@ -125,7 +125,7 @@ class GpuRuntimeManager:
         self._device_probe = device_probe or CudaDriverProbe()
         self._load_active()
 
-    def refresh_device(self, *, min_compute_capability="7.5", min_vram_mb=6144,
+    def refresh_device(self, *, min_compute_capability="7.5", min_vram_mb=5500,
                        min_driver_version=None) -> dict[str, Any]:
         device, reason = self._device_probe.inspect()
         with self._lock:
