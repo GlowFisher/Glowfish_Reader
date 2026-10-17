@@ -7,7 +7,7 @@ name = "glowfish-contracts"
 version = "1.0.0"
 description = "Versioned data and API contracts for Glowfish Reader"
 requires-python = ">=3.12"
-license = {text = "Proprietary"}
+license = {text = "AGPL-3.0"}
 
 [tool.setuptools]
 package-dir = {"" = "src"}

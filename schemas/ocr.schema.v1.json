@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://contracts.glowfishreader.com/ocr.schema.v1.json",
+  "$id": "urn:glowfish:ocr.schema.v1.json",
   "title": "Glowfish OCR result v1",
   "type": "object",
   "properties": {
