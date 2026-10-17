@@ -18,6 +18,29 @@ import threading
 import time
 from pathlib import Path
 from glowfish_ocr.checkpoint import OcrCheckpoint
+from glowfish_ocr.pipeline import OrderedPagePipeline
+
+
+def _configure_cuda_dll_paths():
+    if os.name != "nt":
+        return
+    roots = [
+        Path(sys.prefix) / "Lib" / "site-packages" / "nvidia",
+        Path(sys.prefix) / "nvidia",
+        Path(__file__).resolve().parent / "nvidia",
+    ]
+    paths = []
+    for root in roots:
+        if root.is_dir():
+            paths.extend(str(item / "bin") for item in root.iterdir() if (item / "bin").is_dir())
+    paths = list(dict.fromkeys(paths))
+    for path in paths:
+        try:
+            os.add_dll_directory(path)
+        except (AttributeError, OSError):
+            pass
+    if paths:
+        os.environ["PATH"] = os.pathsep.join([*paths, os.environ.get("PATH", "")])
 
 
 import det_scale
@@ -114,10 +137,25 @@ def _cuda_provider_available():
     device_type=gpu 时自己查一遍并抛 RuntimeError，我们提前查是为了 auto 档静默选 CPU。
     """
     try:
+        _configure_cuda_dll_paths()
         import onnxruntime as ort
         return "CUDAExecutionProvider" in set(ort.get_available_providers())
     except Exception:
         return False
+
+
+def _require_cuda_session(model_root):
+    """Fail closed unless ONNX Runtime creates an actual CUDA-backed Session."""
+    import onnxruntime as ort
+
+    root = Path(model_root or Path(__file__).resolve().parent / "models") / "ppocrv6_onnx" / "det"
+    model = next(iter(sorted(root.glob("*.onnx"))), None)
+    if model is None:
+        raise FileNotFoundError(f"CUDA self-test model missing: {root}")
+    session = ort.InferenceSession(str(model), providers=["CUDAExecutionProvider"])
+    providers = set(session.get_providers())
+    if "CUDAExecutionProvider" not in providers:
+        raise RuntimeError(f"CUDAExecutionProvider did not load; active providers={sorted(providers)}")
 
 
 def _resolve_device():
@@ -158,19 +196,34 @@ def _build_engine(config=None):
     用显卡，否则老实 CPU。显卡起不来（缺驱动 / cuDNN 不全 / 显存不足）自动回落 CPU。
     """
     global ACTIVE_DEVICE, EXPLICIT_DET_CFG
+    _configure_cuda_dll_paths()
     _ensure_paddlex_env()
     from paddleocr import PaddleOCR
 
     cfg = dict(config or {})
     ocr_version = cfg.pop("ocr_version", "PP-OCRv6")
     lang = cfg.pop("lang", "chinese_cht")
+    provider = cfg.pop("provider", "cpu")
+    model_root = cfg.pop("model_root", None)
+    cfg.pop("gpu_runtime_dir", None)
+    cfg.pop("gpu_runtime_version", None)
+    cfg.pop("gpu_python", None)
+    cfg.pop("gpu_script", None)
+    cfg.pop("gpu_pythonpath", None)
+    cfg.pop("engine_profile", None)
+    # Host observability fields describe the requested runtime; PaddleOCR must
+    # never receive them as constructor options.
+    cfg.pop("device_name", None)
     # 这几个是我们自己流水线的开关，不是 PaddleOCR 构造参数，别透传进去。
     cfg.pop("profile", None)
     cfg.pop("column_rescue", None)
     # 显式定死 det 尺度时让位给调用方；box_thresh/unclip 与尺度正交，可与自适应组合。
     EXPLICIT_DET_CFG = any(key in cfg for key in ("text_det_limit_side_len", "text_det_limit_type"))
-    root = Path(__file__).resolve().parent / "models" / "ppocrv6_onnx"
+    root = Path(model_root or Path(__file__).resolve().parent / "models") / "ppocrv6_onnx"
     device = _resolve_device()
+    if provider == "cuda":
+        device = "gpu:0"
+        _require_cuda_session(model_root)
     kwargs = {
         "ocr_version": ocr_version,
         "lang": lang,
@@ -191,13 +244,21 @@ def _build_engine(config=None):
         ACTIVE_DEVICE = device
         return engine
     except Exception as exc:
-        if not str(device or "").startswith("gpu"):
+        if provider == "cuda" or not str(device or "").startswith("gpu"):
             raise
         print(f"WARN: GPU OCR unavailable ({exc!r}); falling back to CPU", file=sys.stderr)
         kwargs["device"] = "cpu"
         engine = _construct(PaddleOCR, dict(kwargs))
         ACTIVE_DEVICE = "cpu"
         return engine
+
+
+def gpu_selftest(model_root=None):
+    """Load locked models with CUDA; never silently downgrade this check to CPU."""
+    _build_engine({"provider": "cuda", "model_root": model_root} if model_root else {"provider": "cuda"})
+    if not str(ACTIVE_DEVICE or "").startswith("gpu"):
+        raise RuntimeError("CUDA provider did not become active")
+    return True
 
 
 def _confusion_enabled():
@@ -240,21 +301,34 @@ def _column_rescue(engine, oriented, pid, norm_dir, columns=None, det_ratio=0.0,
     return rescued
 
 
-def recognize_one(engine, img_path, norm_dir, profile=None, budget=None):
-    """Recognize one image after EXIF normalization, returning one page dict.
+@dataclass
+class PreparedPage:
+    img_path: Path
+    pid: str
+    norm_path: Path
+    ocr_path: Path
+    oriented: object
+    width: int
+    height: int
+    high: bool
+    budget: InferenceBudget | None
+    columns: list
+    det_pitch: float
+    det_ratio: float
+    page_det: object
+    started_at: float
 
-    Full-page OCR is preserved. If recall is suspiciously low, the page is also
-    rescanned as right-to-left vertical columns and recovered lines are merged.
 
-    profile='high_accuracy' 时额外叠加：det 自适应尺度 + 列救援 + 五层后处理增强。
-    轻量版跳过列检测预扫描和自适应尺度——保持纯 PaddleOCR 默认检测参数，速度快。
-    """
+def _prepare_page(img_path, norm_dir, profile=None, budget=None):
+    """Run CPU-only decoding and layout preparation ahead of CUDA inference."""
+    started_at = time.perf_counter()
     from PIL import Image, ImageOps
 
     high = profile == "high_accuracy"
     if high and budget is None:
         budget = InferenceBudget()
-    pid = Path(img_path).stem
+    img_path = Path(img_path)
+    pid = img_path.stem
     norm_path = Path(norm_dir) / f"{pid}.jpg"
     ocr_path = Path(norm_dir) / f"{pid}_ocr.jpg"
     oriented = ImageOps.exif_transpose(Image.open(img_path)).convert("RGB")
@@ -262,23 +336,37 @@ def recognize_one(engine, img_path, norm_dir, profile=None, budget=None):
     oriented.save(norm_path, "JPEG", quality=92)
     ocr_rescue.enhance_for_ocr(oriented).save(ocr_path, "JPEG", quality=92)
 
-    columns = []
-    det_pitch = 0.0
-    det_ratio = 0.0
-    page_det = None
-
+    columns, det_pitch, det_ratio, page_det = [], 0.0, 0.0, None
     if high:
-        # 列检测提前到整页识别之前。先量出列距反推 det 输入缩放比。
         columns = ocr_rescue.find_vertical_text_columns(oriented)
         det_pitch = det_scale.column_pitch(columns)
         det_ratio = 0.0 if EXPLICIT_DET_CFG else det_scale.scale_for(det_pitch)
-        # 保底：满血版检测分辨率不低于 PaddleOCR 默认（轻量版水平）。
-        # det_scale 对极端列距文档是救命稻草，但中等列距文档可能过度压缩。
-        # max(det_scale, 默认) 确保满血版永不低于轻量版的检测质量。
         default_scale = min(1.0, 4000.0 / max(oriented.size))
         if det_ratio > 0:
             det_ratio = max(det_ratio, default_scale)
         page_det = None if EXPLICIT_DET_CFG else det_scale.det_for_size(oriented.size, det_ratio)
+    return PreparedPage(
+        img_path, pid, norm_path, ocr_path, oriented, width, height, high, budget,
+        columns, det_pitch, det_ratio, page_det, started_at,
+    )
+
+
+def _recognize_prepared(engine, prepared):
+    """Run the serial CUDA lane and page-local post-processing for one page.
+
+    Full-page OCR is preserved. If recall is suspiciously low, the page is also
+    rescanned as right-to-left vertical columns and recovered lines are merged.
+
+    profile='high_accuracy' 时额外叠加：det 自适应尺度 + 列救援 + 五层后处理增强。
+    轻量版跳过列检测预扫描和自适应尺度——保持纯 PaddleOCR 默认检测参数，速度快。
+    """
+    pid, norm_path, ocr_path = prepared.pid, prepared.norm_path, prepared.ocr_path
+    oriented, width, height = prepared.oriented, prepared.width, prepared.height
+    high, budget = prepared.high, prepared.budget
+    columns, det_pitch, det_ratio, page_det = (
+        prepared.columns, prepared.det_pitch, prepared.det_ratio, prepared.page_det,
+    )
+    norm_dir = norm_path.parent
 
     def predict_crop(path, size):
         if budget is not None and not budget.allow():
@@ -354,6 +442,31 @@ def recognize_one(engine, img_path, norm_dir, profile=None, budget=None):
             "ocr_meta": meta}
 
 
+def recognize_one(engine, img_path, norm_dir, profile=None, budget=None):
+    """Compatibility wrapper for callers that process one page at a time."""
+    return _recognize_prepared(engine, _prepare_page(img_path, norm_dir, profile, budget))
+
+
+def _cuda_page_pipeline(engine, images, norm_dir, profile, on_complete):
+    """Overlap bounded CPU page preparation with one serial CUDA inference lane."""
+    def prepare(img):
+        try:
+            return img, _prepare_page(img, norm_dir, profile=profile), None
+        except Exception as exc:
+            return img, None, exc
+
+    def infer(item):
+        img, prepared, error = item
+        if error is not None:
+            return img, None, error, None
+        try:
+            return img, _recognize_prepared(engine, prepared), None, prepared.started_at
+        except Exception as exc:
+            return img, None, exc, prepared.started_at
+
+    return OrderedPagePipeline(prepare, infer, lambda value: value, on_complete=on_complete).run(images)
+
+
 
 def run_job(engine, images, out, progress=None, log=print, config=None):
     imgs = _list_images(images)
@@ -375,10 +488,13 @@ def run_job(engine, images, out, progress=None, log=print, config=None):
     norm_dir = Path(out).resolve().parent / "_img"
     norm_dir.mkdir(parents=True, exist_ok=True)
     recog = {}
+    provider = str((config or {}).get("provider") or "cpu")
     for idx, img in enumerate(imgs):
         pid = img.stem
         try:
+            started = time.perf_counter()
             recog[pid] = recognize_one(engine, img, norm_dir, profile=profile, budget=InferenceBudget() if profile == "high_accuracy" else None)
+            _stamp_provider_meta(recog[pid], config, provider, started)
             log(f"  {pid}: {len(recog[pid]['lines'])} lines "
                 f"({recog[pid]['width']}x{recog[pid]['height']})")
         except Exception as exc:
@@ -394,6 +510,19 @@ def run_job(engine, images, out, progress=None, log=print, config=None):
         json.dump(recog, f, ensure_ascii=False, indent=2)
     wp("done", len(imgs), len(imgs))
     return len(recog), len(failed)
+
+
+def _stamp_provider_meta(page, config, provider, started):
+    actual_device = str(ACTIVE_DEVICE or "cpu")
+    actual_provider = "cuda" if actual_device.startswith("gpu") else "cpu"
+    meta = page.setdefault("ocr_meta", {})
+    meta.update({
+        "provider": actual_provider,
+        "requested_provider": provider,
+        "device_name": (config or {}).get("device_name") or actual_device,
+        "runtime_version": (config or {}).get("gpu_runtime_version"),
+        "stage_timings_ms": {"page_total": round((time.perf_counter() - started) * 1000, 2)},
+    })
 
 
 def _run_checkpoint_job(
@@ -448,12 +577,35 @@ def _run_checkpoint_job(
             pass
 
     wp("load")
+    pending = [img for img in imgs if img.stem not in recog]
+    use_cuda_pipeline = (
+        str((config or {}).get("provider") or "cpu") == "cuda" and len(pending) > 1
+    )
+    if use_cuda_pipeline:
+        def complete(_index, result):
+            img, page, error, started = result
+            pid = img.stem
+            if error is None:
+                _stamp_provider_meta(page, config, "cuda", started)
+                checkpoint.record_success(pid, page, engine=actual_engine, attempt=attempt)
+                recog[pid] = page
+                log(f"  {pid}: {len(page['lines'])} lines ({page['width']}x{page['height']})")
+            else:
+                log(f"  FAIL {pid}: {error!r}")
+                failed.append({"name": img.name, "idx": imgs.index(img) + 1})
+                checkpoint.record_failure(pid, error, engine=actual_engine, attempt=attempt)
+            wp("ocr", img.name)
+
+        _cuda_page_pipeline(engine, pending, checkpoint.images_dir, profile, complete)
+        recog = checkpoint.load_pages()
+
     for idx, img in enumerate(imgs):
         pid = img.stem
         if pid in recog:
             wp("ocr", img.name)
             continue
         try:
+            started = time.perf_counter()
             page = recognize_one(
                 engine,
                 img,
@@ -461,6 +613,7 @@ def _run_checkpoint_job(
                 profile=profile,
                 budget=InferenceBudget() if profile == "high_accuracy" else None,
             )
+            _stamp_provider_meta(page, config, str((config or {}).get("provider") or "cpu"), started)
             checkpoint.record_success(
                 pid, page, engine=actual_engine, attempt=attempt
             )
@@ -646,6 +799,14 @@ class OcrWorker:
         windows_process.terminate_process(p)
 
 def main():
+    if "--selftest" in sys.argv:
+        parser = argparse.ArgumentParser()
+        parser.add_argument("--selftest", action="store_true")
+        parser.add_argument("--models-root", default=None)
+        args = parser.parse_args()
+        gpu_selftest(args.models_root)
+        print("GPU SELFTEST OK")
+        return
     if "--serve-worker" in sys.argv:
         config = {}
         if "--worker-config" in sys.argv:
@@ -659,6 +820,8 @@ def main():
     parser.add_argument("--out", required=True)
     parser.add_argument("--progress", default=None)
     parser.add_argument("--config", default=None)
+    parser.add_argument("--models-root", default=None,
+                        help="PP-OCRv6 model root; applies to one-shot OCR runs too")
     args = parser.parse_args()
     config = {}
     if args.config:
@@ -666,6 +829,8 @@ def main():
             config = json.loads(args.config)
         except Exception:
             config = {}
+    if args.models_root:
+        config["model_root"] = args.models_root
     imgs = _list_images(args.images)
     if not imgs:
         sys.exit(f"No images found: {args.images}")

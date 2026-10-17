@@ -1,6 +1,7 @@
 """Public OCR component API."""
 
 from .contracts import OcrHealth, OcrRequest, OcrResult, OcrService, RegionOcrRequest
+from .pipeline import OrderedPagePipeline, PagePipelineConfig, PipelineCancelled
 from .resident import JsonLineOcrWorker, OcrWorkerError, ResidentOcrService
 from .service import SubprocessOcrService
 
@@ -13,6 +14,9 @@ __all__ = [
     "OcrResult",
     "OcrService",
     "OcrWorkerError",
+    "OrderedPagePipeline",
+    "PagePipelineConfig",
+    "PipelineCancelled",
     "ResidentOcrService",
     "RegionOcrRequest",
     "SubprocessOcrService",

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import queue
 import subprocess
 import threading
@@ -10,7 +11,7 @@ from pathlib import Path
 from typing import Callable
 
 from .contracts import OcrHealth, OcrRequest, OcrResult, RegionOcrRequest
-from .registry import normalize_engine, resolve_engine
+from .registry import ENGINE_SPECS, normalize_engine, resolve_engine
 from .validation import read_ocr_result, validate_ocr_input
 
 
@@ -254,13 +255,38 @@ class ResidentOcrService:
         self._submit_rebuilds = 0
 
     def _resolve(self, engine, config=None):
+        requested = dict(config or {})
+        provider = requested.get("provider", "cpu")
+        if provider == "cuda":
+            local_python = Path(str(requested.get("gpu_python") or ""))
+            if local_python.is_file():
+                actual = normalize_engine(engine)
+                script = Path(str(requested.get("gpu_script") or self._legacy_dir / ENGINE_SPECS[actual].script))
+                if not script.is_file():
+                    raise RuntimeError(f"configured GPU OCR script is unavailable: {script}")
+                prefix = [str(local_python), str(script)]
+                defaults = dict(ENGINE_SPECS[actual].params)
+                # Local trial mode still uses the resident JSON-lines protocol;
+                # CUDA stays in the isolated Python child, not the Host.
+                return actual, prefix, {**defaults, **requested}
+            runtime_dir = Path(str(requested.get("gpu_runtime_dir") or "")).resolve()
+            worker = runtime_dir / "glowfish_gpu_worker.exe"
+            if not worker.is_file():
+                raise RuntimeError("configured GPU worker is unavailable")
+            actual = normalize_engine(engine)
+            # The GPU package speaks the same JSON-lines protocol as the CPU
+            # resident worker; keeping it isolated prevents CUDA DLLs leaking
+            # into the Host process.
+            return actual, [str(worker)], requested
+        if provider != "cpu":
+            raise RuntimeError(f"unsupported OCR provider: {provider}")
         actual, prefix, defaults = resolve_engine(
             engine,
             self._legacy_dir,
             self._paddle_python,
             self._desktop_executable,
         )
-        merged = {**defaults, **dict(config or {})}
+        merged = {**defaults, **requested}
         return actual, prefix, merged
 
     def _cancel_idle_timer(self) -> None:
@@ -292,10 +318,17 @@ class ResidentOcrService:
             self._close_worker()
             if self._circuit_open:
                 raise RuntimeError("resident OCR worker circuit is open")
+            startup_errors = []
             for _ in range(self._startup_attempts):
+                worker_env = dict(self._env or os.environ)
+                gpu_pythonpath = str(config.get("gpu_pythonpath") or "").strip()
+                if gpu_pythonpath:
+                    worker_env["PYTHONPATH"] = os.pathsep.join(
+                        [gpu_pythonpath, worker_env.get("PYTHONPATH", "")]
+                    ).rstrip(os.pathsep)
                 worker = self._worker_factory(
                     prefix,
-                    env=self._env,
+                    env=worker_env,
                     model_type=model_type,
                     config=config,
                 )
@@ -306,10 +339,12 @@ class ResidentOcrService:
                     self._worker_model_type = model_type
                     self._worker_config_key = config_key
                     return worker
-                except Exception:
+                except Exception as exc:
+                    startup_errors.append(str(exc) or type(exc).__name__)
                     worker.close()
             self._circuit_open = True
-            raise RuntimeError("resident OCR worker failed to start")
+            detail = " | ".join(startup_errors[-2:]) or "no startup detail"
+            raise RuntimeError(f"resident OCR worker failed to start: {detail}")
 
     def _schedule_idle_close(self, worker) -> None:
         if self._idle_ttl_seconds <= 0:
@@ -381,12 +416,13 @@ class ResidentOcrService:
     def recognize_region(self, request: RegionOcrRequest) -> OcrResult:
         return self.recognize_exact(request)
 
-    def prewarm(self, engine: str) -> OcrHealth:
+    def prewarm(self, engine: str, config: dict | None = None) -> OcrHealth:
+        """Start the resident Worker with the same provider config as a request."""
         with self._execution_lock:
             actual = normalize_engine(engine)
             try:
-                actual, prefix, config = self._resolve(actual)
-                self._worker_for(actual, prefix, config)
+                actual, prefix, resolved_config = self._resolve(actual, config)
+                self._worker_for(actual, prefix, resolved_config)
                 return OcrHealth(True, actual)
             except Exception as exc:
                 return OcrHealth(False, actual, type(exc).__name__)

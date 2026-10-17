@@ -1,0 +1,7 @@
+# Installed only into the optional GPU runtime build environment.
+# Paddle itself is deliberately excluded: select its GPU wheel from Paddle's
+# official matrix for the target CUDA/driver combination before installing this
+# file.  The build script verifies that selection rather than falling back to a
+# CPU wheel.
+-r requirements-paddle.txt
+onnxruntime-gpu==1.27.0

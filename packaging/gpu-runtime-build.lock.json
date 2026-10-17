@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "label": "known-good-local-full-worker-candidate",
+  "release_qualified": false,
+  "python": "3.12",
+  "packages": {
+    "paddlepaddle-gpu": "3.3.0",
+    "paddleocr": "3.7.0",
+    "paddlex": "3.7.0",
+    "onnxruntime-gpu": "1.20.2",
+    "numpy": "2.3.5",
+    "pyinstaller": "6.21.0",
+    "opencv-contrib-python": "4.10.0.84",
+    "pyclipper": "1.4.0",
+    "shapely": "2.1.2"
+  },
+  "required_provider": "CUDAExecutionProvider",
+  "release_note": "This records the locally validated 2.56 GB full Worker. It is not release-qualified: a clean final build must use the separately approved ONNX Runtime GPU 1.27.0 lock and set release_qualified to true."
+}
