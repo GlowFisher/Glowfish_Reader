@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" role="img" aria-label="Xiaohongshu QR placeholder">
+  <rect width="240" height="240" fill="#fff"/>
+  <g fill="#10131a">
+    <path d="M24 24h56v56H24zM160 24h56v56h-56zM24 160h56v56H24z"/>
+    <path fill="#fff" d="M36 36h32v32H36zM172 36h32v32h-32zM36 172h32v32H36z"/>
+    <path d="M44 44h16v16H44zM180 44h16v16h-16zM44 180h16v16H44z"/>
+    <path d="M96 24h16v32H96zM128 24h32v16h-32zM112 72h16v16h-16zM144 72h16v24h-16zM192 88h32v16h-32zM24 104h16v24H24zM56 104h32v16H56zM104 104h24v16h-24zM160 112h48v16h-48zM88 136h16v16H88zM120 136h32v16h-32zM176 144h16v16h-16zM208 144h16v32h-16zM96 168h32v16H96zM160 168h16v48h-16zM192 184h32v16h-32zM96 208h16v16H96zM128 208h16v16h-16zM192 216h32v8h-32z"/>
+  </g>
+  <rect x="92" y="92" width="56" height="56" rx="8" fill="#fff"/>
+  <rect x="100" y="100" width="40" height="40" rx="8" fill="#FF2442"/>
+  <path fill="#fff" d="M108 110h24v5h-24v-5Zm0 8h24v5h-24v-5Zm0 8h15v5h-15v-5Z"/>
+</svg>

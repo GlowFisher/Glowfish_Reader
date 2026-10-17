@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" role="img" aria-label="WeChat QR placeholder">
+  <rect width="240" height="240" fill="#fff"/>
+  <g fill="#10131a">
+    <path d="M24 24h56v56H24zM160 24h56v56h-56zM24 160h56v56H24z"/>
+    <path fill="#fff" d="M36 36h32v32H36zM172 36h32v32h-32zM36 172h32v32H36z"/>
+    <path d="M44 44h16v16H44zM180 44h16v16h-16zM44 180h16v16H44z"/>
+    <path d="M96 28h16v16H96zM128 28h16v16h-16zM96 60h32v16H96zM144 60h16v32h-16zM96 96h16v16H96zM128 96h16v16h-16zM176 96h16v16h-16zM208 96h16v32h-16zM24 104h40v16H24zM80 104h16v32H80zM112 120h32v16h-32zM160 120h32v16h-32zM96 144h16v32H96zM128 144h48v16h-48zM192 144h16v16h-16zM112 176h16v16h-16zM144 176h16v40h-16zM176 176h48v16h-48zM96 208h32v16H96zM176 208h16v16h-16zM208 208h16v16h-16z"/>
+  </g>
+  <rect x="92" y="92" width="56" height="56" rx="8" fill="#fff"/>
+  <path fill="#1AAD19" d="M120 103c-13.3 0-24 8.7-24 19.4 0 6 3.3 11.2 8.5 14.8l-1.8 6.2 7-3.5c3 .9 6.4 1.4 10.3 1.4 13.3 0 24-8.7 24-19s-10.7-19.3-24-19.3Zm-8 15.5a3 3 0 1 1 0-6 3 3 0 0 1 0 6Zm16 0a3 3 0 1 1 0-6 3 3 0 0 1 0 6Z"/>
+</svg>

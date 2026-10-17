@@ -1,0 +1,5 @@
+# Reproducible desktop-shell overlay for a clean project `.venv`.
+# Install with: python -m pip install -r requirements-desktop.txt
+-r requirements-app.txt
+pywebview==6.2.1
+pyinstaller==6.21.0

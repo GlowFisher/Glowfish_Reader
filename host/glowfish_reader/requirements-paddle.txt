@@ -1,0 +1,16 @@
+# glowfish_reader 识别环境依赖锁定（conda env: paddleocr / Python 3.10）
+# 识别子进程（recognize.py / bench/run_paddle.py）在此 env 跑，server 不 import paddle。
+# 安装：
+#   conda create -n paddleocr python=3.10 -y
+#   # paddlepaddle 须按平台从官方源装(CPU 或 GPU)，不要直接 pip install paddlepaddle：
+#   #   GPU(CUDA): 见 https://www.paddlepaddle.org.cn/install/quick
+#   pip install -r requirements-paddle.txt
+# 注：首跑自动下载 PP-OCRv6 / chinese_cht 权重到 ~/.paddlex/（走国内直连，已清代理）。
+
+paddleocr==3.7.0
+paddlex==3.7.0
+numpy==2.2.1
+pillow==11.1.0
+shapely==2.1.2
+pyclipper==1.4.0
+# paddlepaddle（或 paddlepaddle-gpu）：平台相关，单独按官方指引安装，故不在此 pin。

@@ -1,0 +1,19 @@
+name: host-ci
+on:
+  pull_request:
+  push:
+    branches: [main, release/1.0.1, maintenance/1.0]
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: python -m pip install -e ".[test]"
+      - run: python -m pip install -r glowfish_reader/proofread/requirements-app.txt
+      - run: python scripts/check_architecture.py
+      - run: python -m pytest tests -q --basetemp p
+      - run: python -m compileall -q src

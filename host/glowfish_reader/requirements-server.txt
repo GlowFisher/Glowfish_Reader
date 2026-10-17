@@ -1,0 +1,14 @@
+# glowfish_reader 服务/校对环境依赖锁定（codex env / Python 3.12）
+# server.py / proof_model.py / ingest.py / pipeline/build_docx.py / bench/run_bench.py 在此 env 跑。
+# 此 env 不含 paddle；识别由子进程切到 paddleocr env（见 requirements-paddle.txt）。
+# 安装：pip install -r requirements-server.txt
+# DeepSeek 加标点(punctuate.py)走 stdlib urllib，无需额外包，仅需环境变量 DEEPSEEK_API_KEY。
+
+fastapi==0.137.2
+uvicorn==0.49.0
+starlette==1.3.1
+pydantic==2.13.4
+opencc-python-reimplemented==0.1.7
+python-docx==1.2.0
+PyMuPDF==1.27.2.3
+pillow==12.2.0

@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.pytest_*/
+.pytest_cache/
+.venv*/
+.pip_cache/
+.tmp/
+build/
+dist/
+*.egg-info/
+glowfish_reader/proofread/models/
+glowfish_reader/proofread/_work/
+glowfish_reader/proofread/*.db
+components/
+p/
