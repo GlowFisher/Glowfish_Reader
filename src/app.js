@@ -116,8 +116,10 @@ function gfShowFallbackBanner(fb) {
   b.style.cssText = "position:fixed;left:0;right:0;top:0;z-index:8900;display:flex;align-items:center;" +
     "gap:12px;padding:8px 16px;background:#7a4a12;color:#fff;font-size:13px;box-shadow:0 2px 8px rgba(0,0,0,.25)";
   const frm = ENGINE_LABEL[fb.from] || fb.from, to = ENGINE_LABEL[fb.to] || fb.to;
-  b.innerHTML = `<span style="flex:1">本次识别已从「${frm}」引擎自动回退到「${to}」引擎（原因：${
-    (fb.reason || "启动失败").slice(0, 120)}）。识别仍全程本地完成；可在设置中改用快速引擎，或检查高精引擎组件后重新导入。</span>
+  const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  b.innerHTML = `<span style="flex:1">本次识别已从「${esc(frm)}」引擎自动回退到「${esc(to)}」引擎（原因：${
+    esc((fb.reason || "启动失败").slice(0, 120))}）。识别仍全程本地完成；可在设置中改用快速引擎，或检查高精引擎组件后重新导入。</span>
     <button class="btn btn-sec" id="fbDismiss">知道了</button>`;
   document.body.appendChild(b);
   $("#fbDismiss").onclick = () => b.remove();
@@ -129,11 +131,13 @@ async function gfCheckCapabilitiesOnce() {
     const r = await api("/api/capabilities");
     if (r.ok || $("#capBanner")) return;
     const missing = Object.values(r.capabilities).filter((c) => !c.ok).map((c) => c.label);
+    const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, (c) => (
+      { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
     const b = document.createElement("div");
     b.id = "capBanner";
     b.style.cssText = "position:fixed;left:0;right:0;top:0;z-index:8900;display:flex;align-items:center;" +
       "gap:12px;padding:8px 16px;background:#7a1f1f;color:#fff;font-size:13px;box-shadow:0 2px 8px rgba(0,0,0,.25)";
-    b.innerHTML = `<span style="flex:1">以下功能未启用（组件缺失）：${missing.join("、")}。
+    b.innerHTML = `<span style="flex:1">以下功能未启用（组件缺失）：${esc(missing.join("、"))}。
       识别仍可进行，但这些增强层不会生效。请重新安装完整版安装包。</span>
       <button class="btn btn-sec" id="capDismiss">知道了</button>`;
     document.body.appendChild(b);

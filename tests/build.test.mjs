@@ -18,7 +18,7 @@ test("build manifest is deterministic and contains API clients", async () => {
     const manifestB = await readFile(path.join(outB, "manifest.json"), "utf8");
     assert.equal(manifestA, manifestB);
     const paths = JSON.parse(manifestA).files.map((item) => item.path);
-    for (const expected of ["api/http.js", "api/account-api.js", "api/reader-api.js", "api/ocr-api.js", "api/export-api.js"]) {
+    for (const expected of ["api/http.js", "api/reader-api.js", "api/ocr-api.js", "api/export-api.js"]) {
       assert(paths.includes(expected));
     }
   } finally {

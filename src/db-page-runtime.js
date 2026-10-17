@@ -14,10 +14,20 @@ async function gfClearLegacyLongDocCaches() {
 gfClearLegacyLongDocCaches();
 
 async function gfWatchDocumentTask(jobId, onProgress) {
+  // 30 分钟硬性超时（400ms 轮询 ≈ 4500 次），防止后端任务卡在非终态导致无限轮询
+  const DEADLINE = Date.now() + 30 * 60 * 1000;
   for (;;) {
-    const status = await GlowfishApi.reader.taskStatus(jobId);
+    let status;
+    try {
+      status = await GlowfishApi.reader.taskStatus(jobId);
+    } catch (err) {
+      throw new Error("任务状态查询失败：" + (err && err.message ? err.message : "网络错误"));
+    }
     if (typeof onProgress === "function") onProgress(status);
     if (["done", "failed", "cancelled"].includes(status.state)) return status;
+    if (Date.now() > DEADLINE) {
+      throw new Error("任务执行超时（超过 30 分钟），请检查后重试");
+    }
     await new Promise((resolve) => setTimeout(resolve, 400));
   }
 }
