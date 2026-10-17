@@ -164,6 +164,4 @@ body.gf-dark #annotPanel.ann-collapsed { background: rgba(38, 33, 26, .96); }
 body.gf-dark #annotPanel.ann-collapsed:hover { background: #2f2a22; }
 body.gf-dark #annotPanel.ann-collapsed .ann-title { color: var(--ink); }
 body.gf-dark #annotPanel.ann-collapsed .ann-cnt { background: var(--brand); color: #241812; }
-body.gf-dark .notice-modal { border-color: var(--rule-d) !important; outline-color: var(--rule-d); }
-body.gf-dark .notice-empty { color: var(--ink-2); }
 body.gf-dark .modal { box-shadow: 6px 6px 0 rgba(0, 0, 0, .45); }

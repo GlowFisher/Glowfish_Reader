@@ -13,7 +13,6 @@
     taskResultUrl: (jobId) => `/api/document_task/${encodeURIComponent(jobId)}/result`,
     notebooks: () => http.json("/api/notebooks"),
     searchRaw: (options) => http.raw("/api/document_search", options),
-    noticesRaw: () => http.raw("/api/notices", { cache: "no-store" }),
     raw: http.raw
   });
 })(window);

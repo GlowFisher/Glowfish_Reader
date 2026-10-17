@@ -191,15 +191,6 @@ body:not(.no-lowred) .page-text .lc { color: var(--brand); border-bottom: 2px do
 #annotPanel.ann-collapsed .ann-cnt { min-width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center;
   padding: 0 4px; background: var(--brand); color: var(--paper); font-size: 10px; line-height: 1; }
 #annotPanel:not(.ann-collapsed) .ann-cnt { color: var(--brand); }
-/* ===== 公告弹窗（文武线装帧 + 空状态） ===== */
-.notice-modal { width: 440px; max-height: 74vh; display: flex; flex-direction: column;
-  border: 2px solid var(--rule-d) !important; outline: 1px solid var(--rule-d); outline-offset: 2px; }
-.notice-empty { display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 9px; min-height: 130px; color: var(--ink-2); }
-.notice-empty .gf-seal { width: 34px; height: 34px; border: 1.5px solid var(--zhu-line);
-  display: flex; align-items: center; justify-content: center; color: var(--brand);
-  font-family: var(--gf-sans); font-size: 15px; }
-.notice-empty .t { font-size: 13px; }
 
 /* ===== 弹窗 / 下拉 / 表单：版面纸 + 硬影 ===== */
 .modal { background: var(--paper); border: 2px solid var(--rule-d);
