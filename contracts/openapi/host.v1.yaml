@@ -1,0 +1,70 @@
+openapi: 3.1.0
+info:
+  title: Glowfish Reader Local Host API
+  version: 1.0.0
+paths:
+  /health:
+    get:
+      operationId: health
+      responses:
+        "200": {description: Healthy}
+  /api/me:
+    get:
+      operationId: currentUser
+      responses:
+        "200": {description: Current user}
+        "401": {description: Not logged in}
+  /api/open:
+    post:
+      operationId: openDocument
+      responses:
+        "200": {description: Document opened}
+  /api/import_progress:
+    get:
+      operationId: importProgress
+      responses:
+        "200": {description: OCR progress}
+  /api/import_jobs/recoverable:
+    get:
+      operationId: listRecoverableImportJobs
+      responses:
+        "200": {description: Recoverable OCR jobs}
+  /api/import_jobs/{job_id}/resume:
+    post:
+      operationId: resumeImportJob
+      parameters:
+        - in: path
+          name: job_id
+          required: true
+          schema: {type: string}
+      responses:
+        "200": {description: OCR job resumed}
+        "404": {description: Recoverable OCR job not found}
+        "409": {description: OCR job is already running or no longer resumable}
+  /api/import_jobs/{job_id}:
+    delete:
+      operationId: discardImportJob
+      parameters:
+        - in: path
+          name: job_id
+          required: true
+          schema: {type: string}
+      responses:
+        "200": {description: Recoverable OCR job discarded}
+        "404": {description: Recoverable OCR job not found}
+        "409": {description: OCR job is currently running}
+  /api/save:
+    post:
+      operationId: saveProof
+      responses:
+        "200": {description: Saved}
+  /api/reocr_region:
+    post:
+      operationId: reocrRegion
+      responses:
+        "200": {description: Region result}
+  /api/export:
+    post:
+      operationId: exportDocument
+      responses:
+        "200": {description: Exported document}
