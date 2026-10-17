@@ -3,7 +3,7 @@ from pathlib import Path
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
-from run_ocr_runtime_ab import evaluate_reports  # noqa: E402
+from run_ocr_runtime_ab import _display_output, evaluate_reports  # noqa: E402
 
 
 def _report(**overrides):
@@ -47,3 +47,7 @@ def test_benchmark_rejects_output_lifecycle_and_performance_regressions():
         max_rss_growth_mb=64.0,
     )
     assert len(failures) == 6
+
+
+def test_benchmark_output_decoder_preserves_failure_diagnostics_on_windows():
+    assert "\ufffd" in _display_output(b"GPU: \x82")

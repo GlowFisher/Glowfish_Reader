@@ -20,6 +20,21 @@ from pathlib import Path
 from glowfish_ocr.checkpoint import OcrCheckpoint
 
 
+def _configure_cuda_dll_paths():
+    """Expose pip-installed NVIDIA runtime DLLs to ONNX Runtime on Windows."""
+    if os.name != "nt":
+        return
+    root = Path(sys.prefix) / "Lib" / "site-packages" / "nvidia"
+    paths = [str(item / "bin") for item in root.iterdir() if (item / "bin").is_dir()] if root.is_dir() else []
+    for path in paths:
+        try:
+            os.add_dll_directory(path)
+        except (AttributeError, OSError):
+            pass
+    if paths:
+        os.environ["PATH"] = os.pathsep.join([*paths, os.environ.get("PATH", "")])
+
+
 import det_scale
 import ocr_confusion
 import ocr_enhance
@@ -114,6 +129,7 @@ def _cuda_provider_available():
     device_type=gpu 时自己查一遍并抛 RuntimeError，我们提前查是为了 auto 档静默选 CPU。
     """
     try:
+        _configure_cuda_dll_paths()
         import onnxruntime as ort
         return "CUDAExecutionProvider" in set(ort.get_available_providers())
     except Exception:
@@ -158,19 +174,28 @@ def _build_engine(config=None):
     用显卡，否则老实 CPU。显卡起不来（缺驱动 / cuDNN 不全 / 显存不足）自动回落 CPU。
     """
     global ACTIVE_DEVICE, EXPLICIT_DET_CFG
+    _configure_cuda_dll_paths()
     _ensure_paddlex_env()
     from paddleocr import PaddleOCR
 
     cfg = dict(config or {})
     ocr_version = cfg.pop("ocr_version", "PP-OCRv6")
     lang = cfg.pop("lang", "chinese_cht")
+    provider = cfg.pop("provider", "cpu")
+    model_root = cfg.pop("model_root", None)
+    cfg.pop("gpu_python", None)
+    cfg.pop("gpu_runtime_dir", None)
+    cfg.pop("gpu_runtime_version", None)
+    cfg.pop("engine_profile", None)
     # 这几个是我们自己流水线的开关，不是 PaddleOCR 构造参数，别透传进去。
     cfg.pop("profile", None)
     cfg.pop("column_rescue", None)
     # 显式定死 det 尺度时让位给调用方；box_thresh/unclip 与尺度正交，可与自适应组合。
     EXPLICIT_DET_CFG = any(key in cfg for key in ("text_det_limit_side_len", "text_det_limit_type"))
-    root = Path(__file__).resolve().parent / "models" / "ppocrv6_onnx"
+    root = Path(model_root or Path(__file__).resolve().parent / "models") / "ppocrv6_onnx"
     device = _resolve_device()
+    if provider == "cuda":
+        device = "gpu:0"
     kwargs = {
         "ocr_version": ocr_version,
         "lang": lang,
@@ -191,7 +216,7 @@ def _build_engine(config=None):
         ACTIVE_DEVICE = device
         return engine
     except Exception as exc:
-        if not str(device or "").startswith("gpu"):
+        if provider == "cuda" or not str(device or "").startswith("gpu"):
             raise
         print(f"WARN: GPU OCR unavailable ({exc!r}); falling back to CPU", file=sys.stderr)
         kwargs["device"] = "cpu"
@@ -375,10 +400,13 @@ def run_job(engine, images, out, progress=None, log=print, config=None):
     norm_dir = Path(out).resolve().parent / "_img"
     norm_dir.mkdir(parents=True, exist_ok=True)
     recog = {}
+    provider = str((config or {}).get("provider") or "cpu")
     for idx, img in enumerate(imgs):
         pid = img.stem
         try:
+            started = time.perf_counter()
             recog[pid] = recognize_one(engine, img, norm_dir, profile=profile, budget=InferenceBudget() if profile == "high_accuracy" else None)
+            _stamp_provider_meta(recog[pid], config, provider, started)
             log(f"  {pid}: {len(recog[pid]['lines'])} lines "
                 f"({recog[pid]['width']}x{recog[pid]['height']})")
         except Exception as exc:
@@ -394,6 +422,16 @@ def run_job(engine, images, out, progress=None, log=print, config=None):
         json.dump(recog, f, ensure_ascii=False, indent=2)
     wp("done", len(imgs), len(imgs))
     return len(recog), len(failed)
+
+
+def _stamp_provider_meta(page, config, provider, started):
+    meta = page.setdefault("ocr_meta", {})
+    meta.update({
+        "provider": provider,
+        "device_name": (config or {}).get("device_name") or ACTIVE_DEVICE or "cpu",
+        "runtime_version": (config or {}).get("gpu_runtime_version"),
+        "stage_timings_ms": {"page_total": round((time.perf_counter() - started) * 1000, 2)},
+    })
 
 
 def _run_checkpoint_job(

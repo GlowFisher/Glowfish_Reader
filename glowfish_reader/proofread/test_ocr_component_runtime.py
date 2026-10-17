@@ -2,6 +2,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import ocr_component_runtime
+import pytest
 
 
 def test_component_runtime_is_explicitly_opt_in(monkeypatch):
@@ -77,6 +78,27 @@ def test_component_runner_reuses_service_and_forwards_job_metadata(tmp_path):
     assert service.shutdown_calls == 1
 
 
+def test_component_prewarm_passes_provider_configuration_when_supported(tmp_path):
+    captured = {}
+
+    class Service:
+        def prewarm(self, engine, *, config=None):
+            captured["engine"] = engine
+            captured["config"] = config
+            return SimpleNamespace(ok=True)
+
+    runner = ocr_component_runtime.ComponentOcrEngineRunner(
+        service_factory=lambda _job: Service(),
+        provider_config_factory=lambda _ctx, _engine: {"provider": "cpu", "model_root": str(tmp_path / "models")},
+    )
+
+    assert runner.prewarm("ppocrv6_onnx_high")
+    assert captured == {
+        "engine": "ppocrv6_onnx_high",
+        "config": {"provider": "cpu", "model_root": str(tmp_path / "models")},
+    }
+
+
 def test_default_worker_factory_uses_host_process_lifecycle(monkeypatch):
     root = Path(__file__).resolve().parents[2]
     monkeypatch.syspath_prepend(str(root / "components" / "ocr" / "src"))
@@ -99,3 +121,29 @@ def test_default_worker_factory_uses_host_process_lifecycle(monkeypatch):
     assert worker == "worker"
     assert captured["kwargs"]["spawn"] is ocr_component_runtime.windows_process.spawn
     assert captured["kwargs"]["terminate"] is ocr_component_runtime.windows_process.terminate_process
+
+
+def test_cuda_request_rejects_cpu_tagged_worker_output(tmp_path):
+    class Service:
+        def recognize_exact(self, request):
+            request.output_path.write_text(
+                '{"page": {"ocr_meta": {"provider": "cpu", "device": "cpu"}}}',
+                encoding="utf-8",
+            )
+
+    failures = []
+    runner = ocr_component_runtime.ComponentOcrEngineRunner(
+        service_factory=lambda _job: Service(),
+        request_factory=lambda **kwargs: SimpleNamespace(**kwargs),
+        provider_config_factory=lambda _ctx, _engine: {"provider": "cuda"},
+        provider_failure_handler=lambda _ctx, exc: failures.append(str(exc)),
+    )
+
+    with pytest.raises(RuntimeError, match="CUDA worker completed"):
+        runner(
+            ctx=SimpleNamespace(progress_path=tmp_path / "progress.json"),
+            image_dir=tmp_path,
+            recog_path=tmp_path / "recog.json",
+            engine="ppocrv6_onnx_high",
+        )
+    assert failures == ["CUDA worker completed without CUDA OCR metadata"]

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import json
 import os
 import sys
 import threading
@@ -128,10 +129,15 @@ class OcrRuntimeMetrics:
 class ComponentOcrEngineRunner:
     """Translate one Host engine attempt into the public component contract."""
 
-    def __init__(self, service_factory=None, request_factory=None, metrics=None):
+    def __init__(self, service_factory=None, request_factory=None, metrics=None,
+                 provider_config_factory=None, provider_failure_handler=None,
+                 provider_success_handler=None):
         self._service_factory = service_factory or _default_service_factory
         self._request_factory = request_factory or _default_request_factory
         self._metrics = metrics or OcrRuntimeMetrics()
+        self._provider_config_factory = provider_config_factory or (lambda _ctx, _engine: {"provider": "cpu"})
+        self._provider_failure_handler = provider_failure_handler or (lambda _ctx, _error: None)
+        self._provider_success_handler = provider_success_handler or (lambda _ctx, _config, _path: None)
         self._service_lock = threading.Lock()
         self._service = None
 
@@ -146,6 +152,11 @@ class ComponentOcrEngineRunner:
         if job is not None:
             job.check_cancelled()
         progress_path = getattr(job, "progress_path", None) or ctx.progress_path
+        provider_config = self._provider_config_factory(ctx, engine)
+        _LOG.info(
+            "ocr_provider_selected engine=%s provider=%s runtime=%s",
+            engine, provider_config.get("provider", "cpu"), provider_config.get("gpu_runtime_version"),
+        )
         request = self._request_factory(
             image_dir=Path(image_dir),
             output_path=Path(recog_path),
@@ -153,14 +164,23 @@ class ComponentOcrEngineRunner:
             progress_path=Path(progress_path),
             job_id=getattr(job, "job_id", None),
             checkpoint_dir=getattr(job, "checkpoint_dir", None),
+            config=provider_config,
         )
         try:
             self._service_for(job).recognize_exact(request)
             if not Path(recog_path).is_file():
                 raise RuntimeError("component OCR produced no output")
+            self._verify_provider_output(provider_config, Path(recog_path))
+            self._provider_success_handler(ctx, provider_config, Path(recog_path))
             if job is not None:
                 job.check_cancelled()
         except Exception as exc:
+            if provider_config.get("provider") == "cuda":
+                self._provider_failure_handler(ctx, exc)
+            _LOG.warning(
+                "ocr_provider_failed engine=%s provider=%s error=%s",
+                engine, provider_config.get("provider", "cpu"), str(exc)[:500],
+            )
             duration_ms = round((time.perf_counter() - started) * 1000)
             self._metrics.component(engine, success=False, duration_ms=duration_ms, error=exc)
             _LOG.warning(
@@ -176,10 +196,37 @@ class ComponentOcrEngineRunner:
         )
         return True
 
+    @staticmethod
+    def _verify_provider_output(config, output_path):
+        """CUDA requests may never be recorded as successful CPU OCR."""
+        if config.get("provider") != "cuda":
+            return
+        try:
+            payload = json.loads(output_path.read_text(encoding="utf-8"))
+            pages = [page for key, page in payload.items() if key != "_meta" and isinstance(page, dict)]
+            valid = pages and all(
+                (page.get("ocr_meta") or {}).get("provider") == "cuda"
+                and str((page.get("ocr_meta") or {}).get("device") or "").startswith("gpu")
+                for page in pages
+            )
+        except (OSError, ValueError, TypeError):
+            valid = False
+        if not valid:
+            raise RuntimeError("CUDA worker completed without CUDA OCR metadata")
+
     def prewarm(self, engine: str) -> bool:
         started = time.perf_counter()
+        provider_config = self._provider_config_factory(None, engine)
         try:
-            ok = bool(self._service_for().prewarm(engine).ok)
+            service = self._service_for()
+            try:
+                ok = bool(service.prewarm(engine, config=provider_config).ok)
+            except TypeError as exc:
+                # Keep test doubles and third-party service adapters that have
+                # not yet adopted the optional prewarm config parameter alive.
+                if "config" not in str(exc):
+                    raise
+                ok = bool(service.prewarm(engine).ok)
         except Exception as exc:
             duration_ms = round((time.perf_counter() - started) * 1000)
             self._metrics.prewarm(engine, success=False, duration_ms=duration_ms, error=exc)

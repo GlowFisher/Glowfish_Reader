@@ -142,7 +142,7 @@ def test_server_status_exposes_component_metrics_and_rollback(tmp_path, monkeypa
     monkeypatch.syspath_prepend(str(root / "components" / "ocr" / "src"))
     monkeypatch.setattr(appconfig, "data_root", lambda: tmp_path)
     monkeypatch.setenv("GLOWFISH_OCR_COMPONENT_RUNTIME", "component")
-    monkeypatch.setattr(ocr_component_runtime, "ComponentOcrEngineRunner", lambda: runner)
+    monkeypatch.setattr(ocr_component_runtime, "ComponentOcrEngineRunner", lambda **_kwargs: runner)
 
     runtime = importlib.import_module("server_v2")
     status = runtime._runtime_status()["ocr"]

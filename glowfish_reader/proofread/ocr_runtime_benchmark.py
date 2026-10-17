@@ -31,6 +31,17 @@ def _result_summary(path: Path) -> tuple[str, int]:
             value = dict(value)
             if value.get("image"):
                 value["image"] = Path(str(value["image"])).name
+            meta = value.get("ocr_meta")
+            if isinstance(meta, dict):
+                # Provider identity and timings prove acceleration separately;
+                # they must not make repeated OCR quality runs look different.
+                value["ocr_meta"] = {
+                    name: item for name, item in meta.items()
+                    if name not in {
+                        "provider", "requested_provider", "device", "device_name",
+                        "runtime_version", "stage_timings_ms", "attempt",
+                    }
+                }
         normalized[key] = value
     payload = json.dumps(
         normalized,
@@ -84,6 +95,7 @@ def run_benchmark(
     engine: str,
     idle_ttl_seconds: float,
     idle_wait_seconds: float,
+    provider_config: dict | None = None,
 ) -> dict:
     if mode not in {"legacy", "component"}:
         raise ValueError(f"unsupported benchmark mode: {mode}")
@@ -91,8 +103,15 @@ def run_benchmark(
         raise ValueError("iterations must be positive")
     fixture = Path(fixture).resolve(strict=True)
     os.environ["SHUPAI_OCR_IDLE_TTL"] = str(idle_ttl_seconds)
+    provider_config = dict(provider_config or {"provider": "cpu"})
+    if provider_config.get("provider") not in {"cpu", "cuda"}:
+        raise ValueError("benchmark provider must be cpu or cuda")
+    if provider_config["provider"] == "cuda" and not provider_config.get("gpu_runtime_dir"):
+        raise ValueError("CUDA benchmark requires gpu_runtime_dir")
     runner = (
-        ocr_component_runtime.ComponentOcrEngineRunner()
+        ocr_component_runtime.ComponentOcrEngineRunner(
+            provider_config_factory=lambda _ctx, _engine: dict(provider_config),
+        )
         if mode == "component"
         else None
     )
@@ -140,6 +159,8 @@ def run_benchmark(
             report = {
                 "schema_version": 1,
                 "mode": mode,
+                "provider": provider_config["provider"] if mode == "component" else "legacy",
+                "gpu_runtime_version": provider_config.get("gpu_runtime_version"),
                 "engine": engine,
                 "fixture": fixture.name,
                 "iterations": iterations,
@@ -187,11 +208,25 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--engine", default="ppocrv6_onnx_high")
     parser.add_argument("--idle-ttl", type=float, default=1.0)
     parser.add_argument("--idle-wait", type=float, default=1.5)
+    parser.add_argument("--provider", choices=("cpu", "cuda"), default="cpu")
+    parser.add_argument("--gpu-runtime-dir", type=Path)
+    parser.add_argument("--gpu-runtime-version")
+    parser.add_argument("--model-root", type=Path)
+    parser.add_argument("--device-name")
     return parser
 
 
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
+    provider_config = {"provider": args.provider}
+    if args.gpu_runtime_dir:
+        provider_config["gpu_runtime_dir"] = str(args.gpu_runtime_dir.resolve())
+    if args.gpu_runtime_version:
+        provider_config["gpu_runtime_version"] = args.gpu_runtime_version
+    if args.model_root:
+        provider_config["model_root"] = str(args.model_root.resolve())
+    if args.device_name:
+        provider_config["device_name"] = args.device_name
     report = run_benchmark(
         mode=args.mode,
         fixture=args.fixture,
@@ -199,6 +234,7 @@ def main(argv=None) -> int:
         engine=args.engine,
         idle_ttl_seconds=args.idle_ttl,
         idle_wait_seconds=args.idle_wait,
+        provider_config=provider_config,
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
