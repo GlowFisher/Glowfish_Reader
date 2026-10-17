@@ -82,7 +82,7 @@ class JsonLineOcrWorker:
         self._result_timeout = result_timeout
         self._lock = threading.Lock()
         self._process = None
-        self._events = queue.Queue()
+        self._events = queue.Queue(maxsize=512)  # 有界队列：异常输出洪泛时避免内存无上限增长
         self._threads = []
         self._logger = logging.getLogger("glowfish.ocr.worker")
 
@@ -205,7 +205,8 @@ class JsonLineOcrWorker:
             return event
 
     def close(self) -> None:
-        process, self._process = self._process, None
+        with self._lock:
+            process, self._process = self._process, None
         if process is None:
             return
         try:
