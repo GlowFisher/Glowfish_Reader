@@ -74,8 +74,8 @@
 
 ```powershell
 # 1. 克隆仓库
-git clone https://github.com/Pluto3698/Glowfish_Reader_open.git
-cd Glowfish_Reader_open
+git clone https://github.com/GlowFisher/Glowfish_Reader.git
+cd Glowfish_Reader
 
 # 2. 一键引导：创建虚拟环境、安装依赖、构建前端、自动检测并下载模型、校验工作区
 powershell -NoProfile -ExecutionPolicy Bypass -File .\bootstrap.ps1
